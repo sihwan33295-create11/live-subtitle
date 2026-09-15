@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>라이브 자막 MVP</title>
+<style id="css">
+  :root {
+    --bg: #0f1115; --panel: #181b22; --line: #2a2f3a; --text: #e8eaf0; --muted: #9aa3b2;
+    --accent: #4f8cff; --ok: #3ecf8e;
+    --fs: 26px; --fsn: 26; --mul: 1;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Segoe UI", system-ui, sans-serif; font-size: 14px; }
+  .top { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 12px 18px;
+    background: var(--panel); border-bottom: 1px solid var(--line); }
+  .top.second { padding-top: 8px; padding-bottom: 10px; background: #14171d; }
+  .brand { font-weight: 700; font-size: 16px; margin-right: 6px; }
+  .brand span { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+  .ctrl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--muted); }
+  .ctrl label.chk { color: var(--text); display: inline-flex; gap: 4px; align-items: center; margin-right: 4px; }
+  select, input[type=text], input[type=password] { background: #0c0e12; color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 8px; font: inherit; max-width: 100%; }
+  button { background: #242a35; color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 12px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+  button.primary.running, button.on { background: #e5484d; border-color: #e5484d; color: #fff; }
+  .azure { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 18px;
+    background: #141821; border-bottom: 1px solid var(--line); color: var(--muted); }
+  .azure input { width: 260px; }
+  .status { padding: 8px 18px; color: var(--muted); font-size: 13px; min-height: 34px; }
+  .status b { color: var(--ok); }
+  .status.err b { color: #ff6b6b; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; padding: 4px 18px 24px; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+
+  /* 무대: 발표 화면 미리보기 */
+  .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px;
+    overflow: hidden; border: 1px solid var(--line); display: flex; flex-direction: column; }
+  .stage:fullscreen { border-radius: 0; border: 0; --mul: 1.7; }
+  .stage video { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #000; }
+  .slide { flex: 1; min-height: 0; position: relative;
+    background: linear-gradient(135deg, #f7f9fc 0%, #e8eef8 100%); color: #1b2436;
+    padding: 5% 6%; display: flex; flex-direction: column; justify-content: center; }
+  .slide .eyebrow { color: #3a6ee8; font-weight: 700; letter-spacing: .08em; font-size: clamp(10px, 1.4vw, 18px); }
+  .slide h1 { margin: .3em 0 .5em; font-size: clamp(18px, 3.8vw, 52px); line-height: 1.2; }
+  .slide ul { margin: 0; padding-left: 1.2em; font-size: clamp(12px, 1.9vw, 26px); line-height: 1.7; color: #33405a; }
+  .stage:fullscreen .slide .eyebrow { font-size: 2vw; }
+  .stage:fullscreen .slide h1 { font-size: 4.6vw; }
+  .stage:fullscreen .slide ul { font-size: 2.4vw; }
+  .slide .logo { position: absolute; right: 4%; top: 6%; font-weight: 700; color: #8a96ad; font-size: clamp(10px, 1.2vw, 16px); }
+
+  /* 자막 띠 */
+  .subbar { background: rgba(0, 0, 0, .82); padding: .45em 1.2em .55em; display: flex; flex-direction: column; gap: .2em;
+    font-size: calc(var(--fs) * var(--mul)); transition: opacity .6s; }
+  .stage.overlay .subbar { position: absolute; left: 0; right: 0; bottom: 0; }
+  .subbar.idle { opacity: 0; }
+  .row { display: grid; grid-template-columns: 2.4em 1fr; align-items: end; gap: .5em; }
+  .tag { font-size: .42em; font-weight: 700; letter-spacing: .06em; text-align: center; border-radius: 4px;
+    padding: .25em 0; margin-bottom: .55em; color: #000; }
+  .row[data-lang=ko] .tag { background: #ffd24d; }
+  .row[data-lang=en] .tag { background: #7fb2ff; }
+  .row[data-lang=ru] .tag { background: #8ee0b0; }
+  .txt { line-height: 1.38; height: calc(1.38em * var(--lines, 2)); overflow: hidden; display: flex; align-items: flex-end; }
+  .row[data-lang=ko] { font-size: .78em; --lines: 1; }
+  .row[data-lang=ko] .txt { color: #d9d9d9; }
+  .inner { width: 100%; color: #fff; font-weight: 600; word-break: keep-all; overflow-wrap: anywhere; }
+  .prev { color: rgba(255, 255, 255, .5); font-weight: 500; }
+  .cur.interim { color: rgba(255, 255, 255, .72); font-style: italic; }
+  .cur.fixed { animation: fixed 1s ease-out; }
+  @keyframes fixed { 0% { background: rgba(255, 210, 77, .55); } 100% { background: transparent; } }
+
+  /* 항상 위 자막 창(PiP) */
+  body.pip { background: #000; margin: 0; overflow: hidden; }
+  body.pip .subbar { height: 100vh; justify-content: flex-end; background: #000; }
+
+  /* 자막 전용 화면(TV) */
+  body.tv { background: #000; margin: 0; overflow: hidden; height: 100vh; }
+  body.tv .subbar { height: 100vh; justify-content: center; background: #000; padding: 4vh 4vw; gap: 2.5vh;
+    font-size: calc(var(--fsn) * .16vw); }
+  body.tv .row { --lines: 3; }
+  body.tv .row[data-lang=ko] { --lines: 2; }
+  body.tv .subbar.single .row { --lines: 5; font-size: 1.15em; }
+  .tvbar { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    color: #9aa3b2; font: 14px "Malgun Gothic", system-ui, sans-serif; opacity: 0; transition: opacity .3s; z-index: 2; }
+  body.tv:hover .tvbar { opacity: 1; }
+
+  .help { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; line-height: 1.65; color: #c9cfda; }
+  .help h3 { margin: 0 0 6px; font-size: 14px; color: var(--text); }
+  .help h3:not(:first-child) { margin-top: 14px; }
+  .help p, .help ol { margin: 0; }
+  .help ol { padding-left: 18px; }
+  .help .legend span { display: inline-block; padding: 0 6px; border-radius: 4px; }
+  .note { color: var(--muted); font-size: 12px; }
+
+  @media (max-width: 700px) {
+    .top, .azure, .status { padding-left: 16px; padding-right: 16px; }
+    main { padding: 4px 16px 24px; }
+    .stage:not(.overlay) { aspect-ratio: auto; }
+    .stage:not(.overlay) .slide { min-height: 150px; }
+    .azure input { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">라이브 자막<span>MVP</span></div>
+  <div class="ctrl">엔진
+    <select id="engine">
+      <option value="demo">① 데모 (마이크 없이 흐름 보기)</option>
+      <option value="chrome">② 크롬 무료 (PC 마이크)</option>
+      <option value="azure">③ Azure (PC·폰 마이크, 고품질)</option>
+    </select>
+  </div>
+  <div class="ctrl">자막 언어
+    <label class="chk"><input type="checkbox" data-lang="ko" checked>한국어</label>
+    <label class="chk"><input type="checkbox" data-lang="en" checked>English</label>
+    <label class="chk"><input type="checkbox" data-lang="ru" checked>Русский</label>
+  </div>
+  <div class="ctrl">글자 <input type="range" id="size" min="14" max="48" value="26"></div>
+  <label class="ctrl chk"><input type="checkbox" id="autohide" checked>말 없으면 5초 뒤 자막 숨기기</label>
+  <button id="start" class="primary">▶ 시작</button>
+</header>
+
+<section class="top second" id="screens">
+  <span class="ctrl">화면 방식</span>
+  <button id="capture" title="PPT 화면을 받아와서 위에 줄여 보여주고, 아래에 자막">🖥 화면 합성 (PPT 안 가림)</button>
+  <button id="tv" title="자막만 크게 보이는 새 창. 보조 TV로 옮겨서 사용">📺 자막 전용 화면 (TV용)</button>
+  <button id="pip" title="항상 맨 위에 뜨는 자막 창">⧉ PPT 위에 겹치기</button>
+  <div class="ctrl">미리보기
+    <select id="pos">
+      <option value="overlay">슬라이드 위에 겹치기</option>
+      <option value="below">슬라이드 아래 따로</option>
+    </select>
+  </div>
+  <button id="full">⛶ 전체화면</button>
+</section>
+
+<section class="azure" id="azurePanel" hidden>
+  <span>Azure Speech 키</span><input type="password" id="azKey" placeholder="키 1 붙여넣기" autocomplete="off">
+  <span>지역</span><input type="text" id="azRegion" placeholder="예: koreacentral" style="width:150px" autocomplete="off">
+  <span class="note">키는 이 기기의 브라우저에만 저장됩니다.</span>
+</section>
+
+<div class="status" id="status">엔진을 고르고 <b>▶ 시작</b>을 누르세요.</div>
+
+<main>
+  <div class="stage overlay" id="stage">
+    <div class="slide" id="slide">
+      <div class="logo">GLOBAL CAREER</div>
+      <div class="eyebrow">2026 INFORMATION SESSION</div>
+      <h1>해외 인턴십 프로그램<br>지원 안내</h1>
+      <ul>
+        <li>모집 대상 및 자격 요건</li>
+        <li>지원 일정 및 제출 서류</li>
+        <li>질의응답</li>
+      </ul>
+    </div>
+    <video id="cap" autoplay muted playsinline hidden></video>
+    <div class="subbar" id="subbar"></div>
+  </div>
+
+  <aside class="help">
+    <h3>보는 법</h3>
+    <p class="legend"><span style="background:#333;color:#bbb;font-style:italic">흐린 기울임</span> 말하는 중 임시 번역<br>
+      <span style="background:#333;color:#fff;font-weight:600">진한 글씨</span> 문장 끝나고 확정된 번역<br>
+      <span style="background:rgba(255,210,77,.55);color:#fff">노란 번쩍임</span> 임시 번역이 정정된 순간</p>
+
+    <h3>🖥 화면 합성 (추천)</h3>
+    <ol>
+      <li>노트북에서 PPT 슬라이드쇼를 켭니다.</li>
+      <li>이 페이지를 프로젝터 화면으로 옮기고 <b>🖥 화면 합성</b>을 누릅니다.</li>
+      <li>공유할 화면으로 PPT 창(또는 노트북 화면)을 고릅니다.</li>
+      <li><b>⛶ 전체화면</b>을 누르면 위에는 슬라이드, 아래에는 자막이 뜹니다.</li>
+    </ol>
+
+    <h3>📺 자막 전용 화면</h3>
+    <p>자막만 크게 보이는 새 창이 뜹니다. 보조 TV로 옮기고 전체화면을 누르세요. 창 위에 마우스를 올리면 한 가지 언어만 고를 수 있어서, 언어별 구역마다 TV를 둘 때 씁니다.</p>
+
+    <h3>⧉ PPT 위에 겹치기</h3>
+    <p>항상 맨 위에 뜨는 자막 창입니다. 가장 간단하지만 슬라이드 아래쪽이 가려질 수 있습니다.</p>
+
+    <h3>엔진</h3>
+    <p>① 데모: 준비된 문장으로 흐름만 보여줍니다.<br>
+      ② 크롬 무료: PC 크롬에서만 번역까지 됩니다.<br>
+      ③ Azure: PC·폰 모두 되고 실제 행사용 품질입니다.</p>
+  </aside>
+</main>
+
+<script>
+const LANGS = { ko: "KO", en: "EN", ru: "RU" };
+const TARGETS = ["en", "ru"];
+const $ = (id) => document.getElementById(id);
+
+/* ───── 자막 상태: 현재 문장과 직전 문장만 보관 ───── */
+let curId = null, prevId = null, lastActivity = 0;
+const segs = {};
+function seg(id) { return segs[id] || (segs[id] = { text: {}, fin: {}, req: {}, fixedAt: {} }); }
+function beginSeg(id) {
+  if (id === curId) return;
+  if (curId !== null && Object.keys(seg(curId).text).length) prevId = curId;
+  curId = id; seg(id);
+  for (const k of Object.keys(segs)) if (k !== curId && k !== prevId) delete segs[k];
+}
+function setText(id, lang, text, isFinal, req) {
+  const s = seg(id);
+  if (s.fin[lang] && !isFinal) return;              // 확정된 뒤 늦게 온 임시 결과는 무시
+  if (!isFinal && (s.req[lang] || 0) > req) return; // 더 오래된 임시 결과는 무시
+  const before = s.text[lang];
+  s.text[lang] = text; s.req[lang] = req;
+  if (isFinal) { s.fin[lang] = true; if (before && before !== text) s.fixedAt[lang] = Date.now(); }
+  lastActivity = Date.now();
+  render();
+}
+
+/* ───── 자막 띠 그리기: 메인 화면 + 따로 띄운 창들 ───── */
+const extraBars = new Set();
+function allBars() {
+  for (const b of [...extraBars]) {
+    const v = b.ownerDocument.defaultView;
+    if (!v || v.closed || !b.isConnected) extraBars.delete(b);
+  }
+  return [$("subbar"), ...extraBars];
+}
+function enabledLangs() {
+  return [...document.querySelectorAll("input[data-lang]")].filter((c) => c.checked).map((c) => c.dataset.lang);
+}
+function buildBar(bar) {
+  const langs = bar.dataset.only ? [bar.dataset.only] : enabledLangs();
+  bar.classList.toggle("single", langs.length === 1);
+  bar.innerHTML = "";
+  for (const lang of langs) {
+    const row = bar.ownerDocument.createElement("div");
+    row.className = "row"; row.dataset.lang = lang;
+    row.innerHTML = `<div class="tag">${LANGS[lang]}</div><div class="txt"><div class="inner"><span class="prev"></span> <span class="cur"></span></div></div>`;
+    bar.appendChild(row);
+  }
+  renderBar(bar);
+}
+function renderBar(bar) {
+  const p = prevId !== null ? segs[prevId] : null;
+  const c = curId !== null ? segs[curId] : null;
+  for (const row of bar.querySelectorAll(".row")) {
+    const lang = row.dataset.lang;
+    const prevEl = row.querySelector(".prev"), curEl = row.querySelector(".cur");
+    prevEl.textContent = p && p.text[lang] ? p.text[lang] : "";
+    curEl.textContent = c && c.text[lang] ? c.text[lang] : "";
+    curEl.classList.toggle("interim", !!(c && c.text[lang] && !c.fin[lang]));
+    const fixedAt = c && c.fixedAt[lang] ? String(c.fixedAt[lang]) : "";
+    if (fixedAt && curEl.dataset.fixedAt !== fixedAt) {
+      curEl.classList.remove("fixed"); void curEl.offsetWidth; curEl.classList.add("fixed");
+    }
+    curEl.dataset.fixedAt = fixedAt;
+  }
+}
+function render() { allBars().forEach(renderBar); }
+function rebuildAll() { allBars().forEach(buildBar); }
+function clearSubs() { curId = prevId = null; for (const k of Object.keys(segs)) delete segs[k]; render(); }
+
+/* 말이 없으면 자막 숨기기 */
+setInterval(() => {
+  const idle = $("autohide").checked && running && lastActivity > 0 && Date.now() - lastActivity > 5000;
+  allBars().forEach((b) => b.classList.toggle("idle", idle));
+}, 500);
+
+function status(msg, isErr) { const el = $("status"); el.innerHTML = msg; el.classList.toggle("err", !!isErr); }
+
+/* ───── ① 데모 엔진 ───── */
+const SCRIPT = [
+  [
+    ["안녕하세요 여러분", "Hello everyone", "Здравствуйте, все"],
+    ["안녕하세요 여러분, 글로벌 커리어", "Hello everyone, global career", "Здравствуйте все, глобальная карьера"],
+    ["안녕하세요 여러분, 글로벌 커리어 설명회에 오신 것을 환영합니다.",
+     "Hello everyone, welcome to the Global Career information session.",
+     "Здравствуйте! Добро пожаловать на информационную встречу по глобальной карьере."],
+  ],
+  [
+    ["오늘은 해외 인턴십 프로그램", "Today, the overseas internship program", "Сегодня программа зарубежной стажировки"],
+    ["오늘은 해외 인턴십 프로그램의 지원 방법과", "Today, how to apply for the overseas internship program and",
+     "Сегодня о том, как подать заявку на зарубежную стажировку, и"],
+    ["오늘은 해외 인턴십 프로그램의 지원 방법과 일정을 안내해 드리겠습니다.",
+     "Today, I will explain how to apply for the overseas internship program and its schedule.",
+     "Сегодня я расскажу, как подать заявку на программу зарубежной стажировки, и о её сроках."],
+  ],
+  [
+    ["질문이 있으시면 언제든지", "If you have any questions, anytime", "Если у вас есть вопросы, в любое время"],
+    ["질문이 있으시면 언제든지 손을", "If you have any questions, your hand anytime", "Если у вас есть вопросы, в любое время руку"],
+    ["질문이 있으시면 언제든지 손을 들어 주세요.",
+     "If you have any questions, please feel free to raise your hand at any time.",
+     "Если у вас есть вопросы, пожалуйста, поднимите руку в любое время."],
+  ],
+  [
+    ["발표 자료는 행사가 끝난 후", "The presentation materials after the event", "Материалы презентации после мероприятия"],
+    ["발표 자료는 행사가 끝난 후 이메일로 보내 드립니다.",
+     "We will send you the presentation slides by email after the event.",
+     "Мы отправим вам материалы презентации по электронной почте после мероприятия."],
+  ],
+];
+let timers = [];
+const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+function startDemo() {
+  let si = 0, n = 0;
+  const sentence = () => {
+    const steps = SCRIPT[si % SCRIPT.length];
+    const id = "demo" + n++;
+    beginSeg(id);
+    let k = 0, shown = "";
+    const step = () => {
+      const [ko, en, ru] = steps[k];
+      const fin = k === steps.length - 1;
+      const chars = [...ko];
+      let i = [...shown].length;
+      const type = () => {                       // 한국어가 한 글자씩 들리는 것처럼
+        i++;
+        const done = i >= chars.length;
+        setText(id, "ko", chars.slice(0, i).join(""), done && fin, k * 1000 + i);
+        if (!done) return later(type, 75);
+        shown = ko;
+        later(() => {                            // 번역은 조금 늦게 도착
+          setText(id, "en", en, fin, k * 1000 + 999);
+          setText(id, "ru", ru, fin, k * 1000 + 999);
+          k++;
+          if (k < steps.length) later(step, 350);
+          else later(() => { si++; sentence(); }, si % 2 ? 6500 : 2600); // 가끔 길게 쉬어서 자막 숨김도 보여줌
+        }, 380);
+      };
+      type();
+    };
+    step();
+  };
+  sentence();
+  status("<b>데모 재생 중</b> · 흐린 글씨가 말하는 중 번역, 문장이 끝나면 노랗게 번쩍이며 정정됩니다.");
+}
+function stopDemo() { timers.forEach(clearTimeout); timers = []; }
+
+/* ───── ② 크롬 무료 엔진: Web Speech API + 크롬 내장 번역 ───── */
+let rec = null, translatorsReady = null;
+async function makeTranslator(src, tgt, pivot) {
+  const opts = { sourceLanguage: src, targetLanguage: tgt };
+  const a = await Translator.availability(opts);
+  if (a === "unavailable") {
+    if (pivot) {                                  // 한→러 직접이 안 되면 한→영→러
+      const [k2e, e2t] = await Promise.all([pivot, makeTranslator("en", tgt)]);
+      return { translate: async (s) => e2t.translate(await k2e.translate(s)) };
+    }
+    throw new Error(`${src}→${tgt} 번역 미지원`);
+  }
+  return Translator.create({
+    ...opts,
+    monitor(m) { m.addEventListener("downloadprogress", (e) => status(`번역 모델(${tgt}) 내려받는 중… ${Math.round(e.loaded * 100)}%`)); },
+  });
+}
+function startChrome() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { status("<b>이 브라우저는 음성인식을 지원하지 않습니다.</b> PC 크롬으로 열거나 Azure 모드를 쓰세요.", true); return false; }
+
+  if ("Translator" in self) {
+    const ko2en = makeTranslator("ko", "en");
+    translatorsReady = Promise.all([ko2en, makeTranslator("ko", "ru", ko2en)])
+      .then(([en, ru]) => ({ en, ru }))
+      .catch((e) => { status(`<b>번역 준비 실패:</b> ${e.message}`, true); return null; });
+  } else {
+    translatorsReady = Promise.resolve(null);
+    status("<b>이 브라우저에는 내장 번역 기능이 없습니다.</b> 한국어 자막만 표시됩니다. (PC 크롬 최신 버전 또는 Azure 모드 사용)", true);
+  }
+
+  let session = 0, reqNo = 0, pending = null;
+  const lastSent = {};
+  const translate = async (id, text, isFinal) => {
+    const tr = await translatorsReady;
+    if (!tr) return;
+    const req = ++reqNo;
+    for (const lang of TARGETS) {
+      tr[lang].translate(text).then((out) => setText(id, lang, out, isFinal, req)).catch(() => {});
+    }
+  };
+  const onKorean = (id, text, isFinal) => {
+    beginSeg(id);
+    setText(id, "ko", text, isFinal, Date.now());
+    clearTimeout(pending);
+    if (isFinal) return translate(id, text, true);
+    const since = Date.now() - (lastSent[id] || 0);
+    const go = () => { lastSent[id] = Date.now(); translate(id, text, false); };
+    if (since > 700) go(); else pending = setTimeout(go, 700 - since); // 임시 번역은 0.7초에 한 번만
+  };
+
+  const boot = () => {
+    rec = new SR();
+    rec.lang = "ko-KR"; rec.continuous = true; rec.interimResults = true;
+    const s = ++session;
+    rec.onresult = (e) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        const text = r[0].transcript.trim();
+        if (text) onKorean(`c${s}-${i}`, text, r.isFinal);
+      }
+    };
+    rec.onerror = (e) => {
+      if (e.error === "no-speech" || e.error === "aborted") return;
+      status(`<b>음성인식 오류:</b> ${e.error}${e.error === "not-allowed" ? " (마이크 권한을 허용해주세요)" : ""}`, true);
+      if (e.error === "not-allowed") stop();
+    };
+    rec.onend = () => { if (running && engineRunning === "chrome") boot(); }; // 크롬은 가끔 스스로 멈춰서 자동 재시작
+    rec.start();
+  };
+  boot();
+  translatorsReady.then((tr) => { if (tr && running) status("<b>듣는 중</b> · 한국어로 말해보세요."); });
+  status("<b>마이크 준비 중…</b> 권한 요청이 뜨면 허용해주세요.");
+  return true;
+}
+function stopChrome() { if (rec) { rec.onend = null; try { rec.stop(); } catch {} rec = null; } }
+
+/* ───── ③ Azure 엔진: 음성인식 + 다국어 번역을 한 번에 ───── */
+const SDK_URL = "https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@1.51.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js";
+let azRec = null;
+function loadScript(src) {
+  return new Promise((ok, fail) => {
+    if (window.SpeechSDK) return ok();
+    const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => fail(new Error("SDK 로드 실패(인터넷 확인)"));
+    document.head.appendChild(s);
+  });
+}
+function azureError(detail) {
+  if (/401|403|Authentication|Unauthorized/i.test(detail)) return "키 또는 지역이 틀렸습니다. Azure 포털의 '키 및 엔드포인트'에서 다시 확인해주세요.";
+  if (/1006|Unable to contact|WebSocket/i.test(detail)) return "Azure에 연결하지 못했습니다. 인터넷 연결이나 지역 이름을 확인해주세요.";
+  if (/microphone|NotAllowed|Permission/i.test(detail)) return "마이크 권한이 거부되었습니다. 브라우저 설정에서 마이크를 허용해주세요.";
+  if (/quota|429|throttl/i.test(detail)) return "무료 사용량 한도에 걸렸습니다. 잠시 뒤 다시 해보세요.";
+  return detail;
+}
+async function startAzure() {
+  const key = $("azKey").value.trim(), region = $("azRegion").value.trim().toLowerCase().replace(/\s+/g, "");
+  if (!key || !region) { status("<b>Azure 키와 지역을 입력해주세요.</b>", true); $("azurePanel").hidden = false; return false; }
+  try { localStorage.setItem("azKey", key); localStorage.setItem("azRegion", region); } catch {}
+  status("<b>Azure 연결 중…</b> 마이크 권한 요청이 뜨면 허용해주세요.");
+  await loadScript(SDK_URL);
+  const SDK = window.SpeechSDK;
+  const cfg = SDK.SpeechTranslationConfig.fromSubscription(key, region);
+  cfg.speechRecognitionLanguage = "ko-KR";
+  TARGETS.forEach((t) => cfg.addTargetLanguage(t));
+  cfg.setProperty(SDK.PropertyId.SpeechServiceResponse_TranslationRequestStablePartialResult, "true"); // 임시 번역 깜빡임 줄이기
+  azRec = new SDK.TranslationRecognizer(cfg, SDK.AudioConfig.fromDefaultMicrophoneInput());
+  let n = 0, open = false;
+  const apply = (e, isFinal) => {
+    if (!open) { n++; open = true; }
+    const id = "az" + n, req = Date.now();
+    beginSeg(id);
+    setText(id, "ko", e.result.text, isFinal, req);
+    for (const t of TARGETS) { const out = e.result.translations.get(t); if (out) setText(id, t, out, isFinal, req); }
+    if (isFinal) open = false;
+  };
+  azRec.recognizing = (_, e) => apply(e, false);
+  azRec.recognized = (_, e) => { if (e.result.reason === SDK.ResultReason.TranslatedSpeech && e.result.text) apply(e, true); else open = false; };
+  azRec.canceled = (_, e) => {
+    if (e.reason === SDK.CancellationReason.Error) { status(`<b>Azure 오류:</b> ${azureError(e.errorDetails || "")}`, true); stop(); }
+  };
+  azRec.startContinuousRecognitionAsync(
+    () => status("<b>듣는 중 (Azure)</b> · 한국어로 말해보세요."),
+    (err) => { status(`<b>Azure 시작 실패:</b> ${azureError(String(err))}`, true); stop(); }
+  );
+  return true;
+}
+function stopAzure() { if (azRec) { const r = azRec; azRec = null; r.stopContinuousRecognitionAsync(() => r.close(), () => r.close()); } }
+
+/* ───── 시작 / 정지 ───── */
+let running = false, engineRunning = null, wakeLock = null;
+function keepScreenOn() {                       // 폰 화면이 꺼지지 않게
+  if (running && navigator.wakeLock && document.visibilityState === "visible") {
+    navigator.wakeLock.request("screen").then((l) => (wakeLock = l)).catch(() => {});
+  }
+}
+document.addEventListener("visibilitychange", keepScreenOn);
+async function start() {
+  clearSubs();
+  const engine = $("engine").value;
+  running = true; engineRunning = engine; syncButton(); keepScreenOn();
+  let ok = true;
+  try {
+    if (engine === "demo") startDemo();
+    else if (engine === "chrome") ok = startChrome();
+    else ok = await startAzure();
+  } catch (e) { status(`<b>시작 실패:</b> ${e.message}`, true); ok = false; }
+  if (!ok) { running = false; engineRunning = null; syncButton(); }
+}
+function stop() {
+  running = false;
+  stopDemo(); stopChrome(); stopAzure();
+  engineRunning = null; syncButton();
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  allBars().forEach((b) => b.classList.remove("idle"));
+  if (!$("status").classList.contains("err")) status("정지했습니다. 다시 <b>▶ 시작</b>을 누르면 이어서 할 수 있습니다.");
+}
+function syncButton() {
+  const b = $("start");
+  b.textContent = running ? "■ 정지" : "▶ 시작";
+  b.classList.toggle("running", running);
+  $("engine").disabled = running;
+}
+$("start").onclick = () => (running ? stop() : start());
+
+/* ───── 화면 설정 ───── */
+$("engine").onchange = () => { $("azurePanel").hidden = $("engine").value !== "azure"; };
+document.querySelectorAll("input[data-lang]").forEach((c) => (c.onchange = rebuildAll));
+const applyPos = () => $("stage").classList.toggle("overlay", $("pos").value === "overlay");
+$("pos").onchange = applyPos;
+function applySize() {
+  const v = $("size").value;
+  const docs = new Set([document, ...[...extraBars].map((b) => b.ownerDocument)]);
+  for (const d of docs) { d.documentElement.style.setProperty("--fs", v + "px"); d.documentElement.style.setProperty("--fsn", v); }
+}
+$("size").oninput = applySize;
+$("full").onclick = () => $("stage").requestFullscreen?.();
+
+/* 따로 띄운 창(항상 위 창, TV 창)에 자막 띠 붙이기 */
+function attachWindow(w, kind) {
+  const d = w.document;
+  const style = d.createElement("style");
+  style.textContent = $("css").textContent;
+  d.head.appendChild(style);
+  d.title = kind === "tv" ? "자막 전용 화면" : "자막";
+  d.body.className = kind;
+  d.body.innerHTML = kind === "tv"
+    ? `<div class="tvbar"><select id="only"><option value="">표시 언어: 전체</option><option value="ko">한국어만</option><option value="en">English only</option><option value="ru">Только русский</option></select>
+       <button id="fs">⛶ 전체화면</button><span>이 창을 TV 화면으로 옮긴 뒤 전체화면을 누르세요 (더블클릭도 됨)</span></div><div class="subbar" id="subbar"></div>`
+    : `<div class="subbar" id="subbar"></div>`;
+  const bar = d.getElementById("subbar");
+  extraBars.add(bar);
+  if (kind === "tv") {
+    const toggleFs = () => (d.fullscreenElement ? d.exitFullscreen() : d.documentElement.requestFullscreen());
+    d.getElementById("fs").onclick = toggleFs;
+    d.body.ondblclick = toggleFs;
+    d.getElementById("only").onchange = (e) => { bar.dataset.only = e.target.value; buildBar(bar); };
+  }
+  applySize();
+  buildBar(bar);
+}
+
+let pipWin = null;
+$("pip").onclick = async () => {
+  if (pipWin && !pipWin.closed) return pipWin.focus();
+  pipWin = await documentPictureInPicture.requestWindow({ width: 1200, height: 210 });
+  attachWindow(pipWin, "pip");
+};
+
+let tvWin = null;
+$("tv").onclick = () => {
+  if (tvWin && !tvWin.closed) return tvWin.focus();
+  tvWin = window.open("", "subtitle-tv", "popup,width=1280,height=720");
+  if (!tvWin) return status("<b>팝업이 차단되었습니다.</b> 주소창 오른쪽의 팝업 차단 아이콘에서 허용해주세요.", true);
+  tvWin.document.open();
+  tvWin.document.write('<!doctype html><html lang="ko"><head><meta charset="utf-8"></head><body></body></html>');
+  tvWin.document.close();
+  attachWindow(tvWin, "tv");
+};
+
+/* 화면 합성: PPT 화면을 받아와 위에 보여주고 아래에 자막 */
+let capStream = null;
+function stopCapture() {
+  if (capStream) capStream.getTracks().forEach((t) => t.stop());
+  capStream = null;
+  $("cap").srcObject = null; $("cap").hidden = true; $("slide").hidden = false;
+  $("capture").classList.remove("on"); $("capture").textContent = "🖥 화면 합성 (PPT 안 가림)";
+}
+$("capture").onclick = async () => {
+  if (capStream) return stopCapture();
+  try {
+    capStream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 60 }, cursor: "never" }, audio: false, selfBrowserSurface: "exclude",
+    });
+  } catch { return status("화면 선택을 취소했습니다."); }
+  const v = $("cap");
+  v.srcObject = capStream; v.hidden = false; $("slide").hidden = true;
+  $("pos").value = "below"; applyPos();
+  $("capture").classList.add("on"); $("capture").textContent = "■ 화면 합성 끄기";
+  capStream.getVideoTracks()[0].addEventListener("ended", stopCapture);
+  status("<b>화면 합성 중</b> · 이 창을 프로젝터 화면으로 옮기고 <b>⛶ 전체화면</b>을 누르세요.");
+};
+
+/* 기기에서 안 되는 기능은 숨기기 (폰 등) */
+if (!("documentPictureInPicture" in window)) $("pip").hidden = true;
+if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) $("capture").hidden = true;
+if (matchMedia("(pointer: coarse)").matches && innerWidth < 900) {
+  $("tv").hidden = true; $("full").hidden = true;
+  $("size").value = 18; $("pos").value = "below"; applyPos();
+  $("engine").value = "azure"; $("azurePanel").hidden = false;
+}
+
+try { $("azKey").value = localStorage.getItem("azKey") || ""; $("azRegion").value = localStorage.getItem("azRegion") || ""; } catch {}
+applySize();
+buildBar($("subbar"));
+</script>
+</body>
+</html>
