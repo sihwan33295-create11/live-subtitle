@@ -42,6 +42,17 @@
     overflow: hidden; border: 1px solid var(--line); display: flex; flex-direction: column; }
   .stage:fullscreen { border-radius: 0; border: 0; --mul: 1.7; }
   .stage video { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #000; }
+  .deck { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; background: #000; cursor: pointer; }
+  .deck .deckBody { position: relative; overflow: hidden; }
+  .deck canvas { display: block; }
+  .pptxHost { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: #fff; }
+  .stage.deckmode .row { --lines: 1; }                       /* 발표자료 모드: 자막은 언어별 한 줄로 줄여 슬라이드를 크게 */
+  .stage.deckmode:fullscreen { --mul: 1.3; }
+  .pptx-preview-wrapper-next, .pptx-preview-wrapper-pre, .pptx-preview-wrapper-pagination { display: none !important; }
+  .pptx-preview-wrapper { background: transparent !important; overflow: hidden !important; }
+  .deck .pageNo { position: absolute; right: 10px; top: 8px; color: #fff; background: rgba(0,0,0,.45); border-radius: 6px; padding: 2px 8px; font-size: 13px; opacity: .7; }
+  .stage:fullscreen .deck .pageNo { opacity: 0; }
+  body.dragging .stage { outline: 4px dashed #3a6ee8; outline-offset: -4px; }
   .slide { flex: 1; min-height: 0; position: relative;
     background: linear-gradient(135deg, #f7f9fc 0%, #e8eef8 100%); color: #1b2436;
     padding: 5% 6%; display: flex; flex-direction: column; justify-content: center; }
@@ -116,6 +127,9 @@
       <option value="azure">③ Azure (PC·폰 마이크, 고품질)</option>
     </select>
   </div>
+  <div class="ctrl">마이크
+    <select id="mic" style="max-width:220px"><option value="">기본 마이크</option></select>
+  </div>
   <div class="ctrl">자막 언어
     <label class="chk"><input type="checkbox" data-lang="ko" checked>한국어</label>
     <label class="chk"><input type="checkbox" data-lang="en" checked>English</label>
@@ -128,9 +142,10 @@
 
 <section class="top second" id="screens">
   <span class="ctrl">화면 방식</span>
+  <button id="deck" class="primary" title="PPT 파일을 그대로 넣으면 슬라이드 아래에 자막이 붙어서 나옵니다">📄 발표자료 넣기 (PPT·PDF)</button>
+  <input type="file" id="deckFile" accept=".pptx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden>
   <button id="capture" title="PPT 화면을 받아와서 위에 줄여 보여주고, 아래에 자막">🖥 화면 합성 (PPT 안 가림)</button>
   <button id="tv" title="자막만 크게 보이는 새 창. 보조 TV로 옮겨서 사용">📺 자막 전용 화면 (TV용)</button>
-  <button id="pip" title="항상 맨 위에 뜨는 자막 창">⧉ PPT 위에 겹치기</button>
   <div class="ctrl">미리보기
     <select id="pos">
       <option value="overlay">슬라이드 위에 겹치기</option>
@@ -146,10 +161,17 @@
   <span class="note">키는 이 기기의 브라우저에만 저장됩니다.</span>
 </section>
 
+<section class="azure" id="glossPanel">
+  <span>오늘 행사 용어</span>
+  <input type="text" id="eventTerms" style="width:520px" autocomplete="off"
+    placeholder="발표자 이름, 기업명, 행사명 등을 쉼표로 구분해 입력 (예: 홍길동, 삼성전자, 창업캠프)">
+  <span class="note" id="glossInfo">공통 용어집 불러오는 중…</span>
+</section>
+
 <div class="status" id="status">엔진을 고르고 <b>▶ 시작</b>을 누르세요.</div>
 
 <main>
-  <div class="stage overlay" id="stage">
+  <div class="stage overlay" id="stage" tabindex="-1">
     <div class="slide" id="slide">
       <div class="logo">GLOBAL CAREER</div>
       <div class="eyebrow">2026 INFORMATION SESSION</div>
@@ -160,6 +182,7 @@
         <li>질의응답</li>
       </ul>
     </div>
+    <div class="deck" id="deckView" hidden><div class="deckBody"></div><div class="pageNo" id="pageNo"></div></div>
     <video id="cap" autoplay muted playsinline hidden></video>
     <div class="subbar" id="subbar"></div>
   </div>
@@ -170,7 +193,15 @@
       <span style="background:#333;color:#fff;font-weight:600">진한 글씨</span> 문장 끝나고 확정된 번역<br>
       <span style="background:rgba(255,210,77,.55);color:#fff">노란 번쩍임</span> 임시 번역이 정정된 순간</p>
 
-    <h3>🖥 화면 합성 (추천)</h3>
+    <h3>📄 발표자료 넣기 (가장 쉬움)</h3>
+    <ol>
+      <li>PPT 파일(.pptx)을 이 화면에 <b>끌어다 놓거나</b> <b>📄 발표자료 넣기</b>를 누릅니다.</li>
+      <li><b>F5</b>를 누르면 전체화면. 위에는 슬라이드, 아래에는 자막이 나옵니다.</li>
+      <li><b>방향키·스페이스·클릭·프레젠터(리모컨)</b>로 넘깁니다. 나갈 때는 <b>Esc</b>.</li>
+    </ol>
+    <p>PPT 프로그램을 켤 필요가 없습니다. 애니메이션·동영상은 빠지고, 글꼴이 조금 다를 수 있습니다. 모양이 꼭 같아야 하면 PDF로 저장해서 넣으세요.</p>
+
+    <h3>🖥 화면 합성</h3>
     <ol>
       <li>노트북에서 PPT 슬라이드쇼를 켭니다.</li>
       <li>이 페이지를 프로젝터 화면으로 옮기고 <b>🖥 화면 합성</b>을 누릅니다.</li>
@@ -181,8 +212,6 @@
     <h3>📺 자막 전용 화면</h3>
     <p>자막만 크게 보이는 새 창이 뜹니다. 보조 TV로 옮기고 전체화면을 누르세요. 창 위에 마우스를 올리면 한 가지 언어만 고를 수 있어서, 언어별 구역마다 TV를 둘 때 씁니다.</p>
 
-    <h3>⧉ PPT 위에 겹치기</h3>
-    <p>항상 맨 위에 뜨는 자막 창입니다. 가장 간단하지만 슬라이드 아래쪽이 가려질 수 있습니다.</p>
 
     <h3>엔진</h3>
     <p>① 데모: 준비된 문장으로 흐름만 보여줍니다.<br>
@@ -206,7 +235,78 @@ function beginSeg(id) {
   curId = id; seg(id);
   for (const k of Object.keys(segs)) if (k !== curId && k !== prevId) delete segs[k];
 }
+/* ───── 용어집: 공통(glossary.csv) + 오늘 행사 용어(입력칸) ───── */
+// 한 줄 = { ko, fix: { ko:[틀린 표기…], en:[…], ru:[…] }, en, ru }
+let commonTerms = [], fixRules = { ko: [], en: [], ru: [] };
+function parseCSV(text) {
+  const rows = []; let row = [], cell = "", q = false;
+  text = text.replace(/^﻿/, "");
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+    else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.some((c) => c.trim()));
+}
+const splitAlt = (s) => (s || "").split("|").map((x) => x.trim()).filter(Boolean);
+async function loadGlossary() {
+  try {
+    const res = await fetch("glossary.csv", { cache: "no-cache" });
+    if (!res.ok) throw new Error(res.status);
+    const rows = parseCSV(await res.text()).slice(1);   // 첫 줄은 제목
+    commonTerms = rows.filter((r) => (r[1] || "").trim()).map((r) => ({
+      ko: r[1].trim(), en: (r[3] || "").trim(), ru: (r[5] || "").trim(),
+      fix: { ko: splitAlt(r[2]), en: splitAlt(r[4]), ru: splitAlt(r[6]) },
+    }));
+    $("glossInfo").textContent = `공통 용어집 ${commonTerms.length}개 적용 중`;
+  } catch {
+    $("glossInfo").textContent = "공통 용어집을 불러오지 못했습니다(오늘 행사 용어만 적용)";
+  }
+  buildFixRules();
+}
+function eventTerms() {                          // "한국어=English=Русский" 형식, 영어·러시아어는 생략 가능
+  return $("eventTerms").value.split(/[,，\n]/).map((x) => x.trim()).filter(Boolean).map((x) => {
+    const [ko, en = "", ru = ""] = x.split("=").map((p) => p.trim());
+    return { ko, en, ru, fix: { ko: [], en: [], ru: [] } };
+  }).filter((t) => t.ko);
+}
+function allTerms() { return [...commonTerms, ...eventTerms()]; }
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function buildFixRules() {
+  const rules = { ko: [], en: [], ru: [] };
+  for (const t of allTerms()) {
+    for (const lang of ["ko", "en", "ru"]) {
+      if (!t[lang]) continue;
+      for (const wrong of t.fix[lang]) rules[lang].push([wrong, t[lang]]);
+    }
+  }
+  for (const lang of ["ko", "en", "ru"]) {
+    rules[lang].sort((a, b) => b[0].length - a[0].length);   // 긴 표기부터 바꿔야 겹침 오류가 없음
+    rules[lang] = rules[lang].map(([wrong, right]) => [
+      lang === "ko" ? new RegExp(escRe(wrong), "g")
+                    : new RegExp(`(?<![\\p{L}\\p{N}])${escRe(wrong)}(?![\\p{L}\\p{N}])`, "gu"),  // 영어·러시아어는 단어 단위로만
+      right,
+    ]);
+  }
+  fixRules = rules;
+}
+function applyGlossary(lang, text) {
+  for (const [re, right] of fixRules[lang] || []) text = text.replace(re, right);
+  return text;
+}
+try { $("eventTerms").value = localStorage.getItem("eventTerms") || ""; } catch {}
+$("eventTerms").addEventListener("input", () => {
+  try { localStorage.setItem("eventTerms", $("eventTerms").value); } catch {}
+  buildFixRules();
+});
+loadGlossary();
+
 function setText(id, lang, text, isFinal, req) {
+  text = applyGlossary(lang, text);
   const s = seg(id);
   if (s.fin[lang] && !isFinal) return;              // 확정된 뒤 늦게 온 임시 결과는 무시
   if (!isFinal && (s.req[lang] || 0) > req) return; // 더 오래된 임시 결과는 무시
@@ -442,7 +542,12 @@ async function startAzure() {
   cfg.speechRecognitionLanguage = "ko-KR";
   TARGETS.forEach((t) => cfg.addTargetLanguage(t));
   cfg.setProperty(SDK.PropertyId.SpeechServiceResponse_TranslationRequestStablePartialResult, "true"); // 임시 번역 깜빡임 줄이기
-  azRec = new SDK.TranslationRecognizer(cfg, SDK.AudioConfig.fromDefaultMicrophoneInput());
+  const micId = $("mic").value;
+  const audio = micId ? SDK.AudioConfig.fromMicrophoneInput(micId) : SDK.AudioConfig.fromDefaultMicrophoneInput();
+  azRec = new SDK.TranslationRecognizer(cfg, audio);
+  const phrases = SDK.PhraseListGrammar.fromRecognizer(azRec);   // 용어집 단어를 미리 알려줘서 인식률 높이기
+  const words = [...new Set(allTerms().map((t) => t.ko))].slice(0, 500);
+  words.forEach((w) => phrases.addPhrase(w));
   let n = 0, open = false;
   const apply = (e, isFinal) => {
     if (!open) { n++; open = true; }
@@ -458,12 +563,34 @@ async function startAzure() {
     if (e.reason === SDK.CancellationReason.Error) { status(`<b>Azure 오류:</b> ${azureError(e.errorDetails || "")}`, true); stop(); }
   };
   azRec.startContinuousRecognitionAsync(
-    () => status("<b>듣는 중 (Azure)</b> · 한국어로 말해보세요."),
+    () => status(`<b>듣는 중 (Azure)</b> · 한국어로 말해보세요. (용어 ${words.length}개 반영)`),
     (err) => { status(`<b>Azure 시작 실패:</b> ${azureError(String(err))}`, true); stop(); }
   );
   return true;
 }
 function stopAzure() { if (azRec) { const r = azRec; azRec = null; r.stopContinuousRecognitionAsync(() => r.close(), () => r.close()); } }
+
+/* ───── 마이크 고르기: 꽂은 핀마이크를 화면에서 바로 선택 ───── */
+async function listMics(askPermission) {
+  const sel = $("mic");
+  try {
+    if (askPermission) {                         // 권한을 받아야 마이크 이름이 보임
+      const st = await navigator.mediaDevices.getUserMedia({ audio: true });
+      st.getTracks().forEach((t) => t.stop());
+    }
+    const mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput" && d.deviceId !== "default" && d.deviceId !== "communications");
+    let saved = ""; try { saved = localStorage.getItem("micId") || ""; } catch {}
+    const cur = sel.value || saved;
+    sel.innerHTML = '<option value="">기본 마이크</option>' +
+      mics.map((d, i) => `<option value="${d.deviceId}">${(d.label || "마이크 " + (i + 1)).replace(/</g, "&lt;")}</option>`).join("");
+    if (mics.some((d) => d.deviceId === cur)) sel.value = cur;
+  } catch {}
+}
+$("mic").addEventListener("pointerdown", () => { if ($("mic").options.length <= 1) listMics(true); });
+$("mic").addEventListener("focus", () => { if ($("mic").options.length <= 1) listMics(true); });
+$("mic").onchange = () => { try { localStorage.setItem("micId", $("mic").value); } catch {} };
+navigator.mediaDevices?.addEventListener?.("devicechange", () => listMics(false));   // 마이크를 꽂거나 빼면 목록 자동 갱신
+listMics(false);
 
 /* ───── 시작 / 정지 ───── */
 let running = false, engineRunning = null, wakeLock = null;
@@ -497,7 +624,7 @@ function syncButton() {
   const b = $("start");
   b.textContent = running ? "■ 정지" : "▶ 시작";
   b.classList.toggle("running", running);
-  $("engine").disabled = running;
+  $("engine").disabled = running; $("mic").disabled = running;
 }
 $("start").onclick = () => (running ? stop() : start());
 
@@ -538,13 +665,6 @@ function attachWindow(w, kind) {
   buildBar(bar);
 }
 
-let pipWin = null;
-$("pip").onclick = async () => {
-  if (pipWin && !pipWin.closed) return pipWin.focus();
-  pipWin = await documentPictureInPicture.requestWindow({ width: 1200, height: 210 });
-  attachWindow(pipWin, "pip");
-};
-
 let tvWin = null;
 $("tv").onclick = () => {
   if (tvWin && !tvWin.closed) return tvWin.focus();
@@ -555,6 +675,119 @@ $("tv").onclick = () => {
   tvWin.document.close();
   attachWindow(tvWin, "tv");
 };
+
+/* 발표자료 넣기(PPT·PDF): 화면 공유 없이 이 창에서 슬라이드를 넘기며 아래에 자막 */
+const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+const PPTXJS = "https://cdn.jsdelivr.net/npm/pptx-preview@1.0.7/dist/pptx-preview.umd.js";
+// deck = { count, render(page, box) } — PDF와 PPT를 같은 방식으로 넘기기 위한 공통 틀
+let deck = null, deckPage = 1, deckRendering = null;
+function loadLib(src, ready) {
+  if (ready()) return Promise.resolve();
+  return new Promise((ok, fail) => {
+    const sc = document.createElement("script"); sc.src = src; sc.onload = ok;
+    sc.onerror = () => fail(new Error("발표자료 도구를 불러오지 못했습니다(인터넷 확인)"));
+    document.head.appendChild(sc);
+  });
+}
+async function pdfDeck(buf) {
+  await loadLib(PDFJS, () => window.pdfjsLib);
+  pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS.replace("pdf.min.js", "pdf.worker.min.js");
+  const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+  return {
+    count: doc.numPages,
+    async render(n, box, my) {
+      const page = await doc.getPage(n);
+      if (deckRendering !== my) return;
+      const base = page.getViewport({ scale: 1 });
+      const fit = Math.min(box.clientWidth / base.width, box.clientHeight / base.height) || 1;
+      const dpr = window.devicePixelRatio || 1, vp = page.getViewport({ scale: fit * dpr });
+      const cv = document.createElement("canvas");                 // 새 캔버스에 그린 뒤 바꿔 끼워서 깜빡임 방지
+      cv.width = vp.width; cv.height = vp.height;
+      cv.style.width = vp.width / dpr + "px"; cv.style.height = vp.height / dpr + "px";
+      await page.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
+      if (deckRendering !== my) return;
+      box.querySelector(".deckBody").replaceChildren(cv);
+    },
+  };
+}
+async function pptxDeck(buf) {
+  await loadLib(PPTXJS, () => window.pptxPreview);
+  const W = 1280;
+  const host = document.createElement("div"); host.className = "pptxHost";
+  const make = (h) => pptxPreview.init(host, { width: W, height: h, mode: "slide" });
+  let h = 720, pv = make(h);
+  await pv.preview(buf.slice(0));
+  const ratio = pv.pptx.height / pv.pptx.width;                     // 4:3 등 16:9가 아닌 PPT도 비율 맞추기
+  if (ratio && Math.abs(ratio * W - h) > 2) { pv.destroy?.(); host.replaceChildren(); h = Math.round(ratio * W); pv = make(h); await pv.preview(buf.slice(0)); }
+  return {
+    count: pv.slideCount,
+    render(n, box) {
+      pv.renderSingleSlide(n - 1);
+      const scale = Math.min(box.clientWidth / W, box.clientHeight / h) || 1;
+      host.style.width = W + "px"; host.style.height = h + "px"; host.style.transform = `scale(${scale})`;
+      const body = box.querySelector(".deckBody");
+      body.style.width = W * scale + "px"; body.style.height = h * scale + "px";
+      if (host.parentNode !== body) body.replaceChildren(host);
+    },
+  };
+}
+async function openDeck(file) {
+  if (!file) return;
+  const isPdf = /\.pdf$/i.test(file.name) || file.type === "application/pdf";
+  const isPptx = /\.pptx$/i.test(file.name);
+  if (/\.ppt$/i.test(file.name)) return status("<b>옛날 PPT 형식(.ppt)은 열 수 없습니다.</b> 파워포인트에서 .pptx로 다시 저장해 주세요.", true);
+  if (!isPdf && !isPptx) return status("<b>PPT(.pptx)나 PDF 파일만 넣을 수 있습니다.</b>", true);
+  status("<b>발표자료 여는 중…</b> 잠시만 기다려 주세요.");
+  let d;
+  try { d = await (isPdf ? pdfDeck : pptxDeck)(await file.arrayBuffer()); }
+  catch (e) { return status(`<b>발표자료를 열지 못했습니다:</b> ${e.message || e}`, true); }
+  stopCapture();
+  deck = d; deckPage = 1;
+  $("slide").hidden = true; $("deckView").hidden = false; $("stage").classList.add("deckmode");
+  $("pos").value = "below"; applyPos();
+  $("deck").textContent = "📄 다른 발표자료"; $("closeDeck").hidden = false;
+  await renderDeck();
+  $("stage").focus();
+  status(`<b>${file.name.replace(/</g, "&lt;")}</b> (${deck.count}장) · <b>F5</b>를 누르면 전체화면, 방향키·리모컨으로 넘깁니다.` +
+    (isPptx ? " 글꼴·도형이 PPT와 조금 다르게 보일 수 있습니다." : ""));
+}
+async function renderDeck() {
+  if (!deck) return;
+  const my = {}; deckRendering = my;
+  await deck.render(deckPage, $("deckView"), my);
+  $("pageNo").textContent = `${deckPage} / ${deck.count}`;
+}
+function goDeck(n) {
+  if (!deck) return;
+  const p = Math.min(deck.count, Math.max(1, n));
+  if (p !== deckPage) { deckPage = p; renderDeck(); }
+}
+function closeDeck() {
+  deck = null; $("deckView").hidden = true; $("slide").hidden = false; $("stage").classList.remove("deckmode");
+  $("deckView").querySelector(".deckBody").replaceChildren();
+  $("deck").textContent = "📄 발표자료 넣기 (PPT·PDF)"; $("closeDeck").hidden = true;
+}
+$("deck").insertAdjacentHTML("afterend", '<button id="closeDeck" hidden>✕ 발표자료 닫기</button>');
+$("closeDeck").onclick = closeDeck;
+$("deck").onclick = () => $("deckFile").click();
+$("deckFile").onchange = (e) => { openDeck(e.target.files[0]); e.target.value = ""; };
+$("deckView").onclick = () => goDeck(deckPage + 1);
+addEventListener("dragover", (e) => { e.preventDefault(); document.body.classList.add("dragging"); });
+addEventListener("dragleave", (e) => { if (!e.relatedTarget) document.body.classList.remove("dragging"); });
+addEventListener("drop", (e) => { e.preventDefault(); document.body.classList.remove("dragging"); openDeck(e.dataTransfer.files[0]); });
+addEventListener("keydown", (e) => {
+  if (!deck || e.target.closest("input, select, textarea")) return;
+  const k = e.key;
+  if (k === "F5") { e.preventDefault(); $("stage").requestFullscreen?.(); }
+  else if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter", "n"].includes(k)) { e.preventDefault(); goDeck(deckPage + 1); }
+  else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace", "p"].includes(k)) { e.preventDefault(); goDeck(deckPage - 1); }
+  else if (k === "Home") goDeck(1);
+  else if (k === "End") goDeck(deck.count);
+});
+let deckResize = null;
+const rerender = () => { clearTimeout(deckResize); deckResize = setTimeout(renderDeck, 120); };
+addEventListener("resize", rerender);
+document.addEventListener("fullscreenchange", rerender);
 
 /* 화면 합성: PPT 화면을 받아와 위에 보여주고 아래에 자막 */
 let capStream = null;
@@ -571,6 +804,7 @@ $("capture").onclick = async () => {
       video: { frameRate: { ideal: 60 }, cursor: "never" }, audio: false, selfBrowserSurface: "exclude",
     });
   } catch { return status("화면 선택을 취소했습니다."); }
+  if (deck) closeDeck();
   const v = $("cap");
   v.srcObject = capStream; v.hidden = false; $("slide").hidden = true;
   $("pos").value = "below"; applyPos();
@@ -580,7 +814,6 @@ $("capture").onclick = async () => {
 };
 
 /* 기기에서 안 되는 기능은 숨기기 (폰 등) */
-if (!("documentPictureInPicture" in window)) $("pip").hidden = true;
 if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) $("capture").hidden = true;
 if (matchMedia("(pointer: coarse)").matches && innerWidth < 900) {
   $("tv").hidden = true; $("full").hidden = true;
