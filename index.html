@@ -196,7 +196,7 @@
     <h3>📄 발표자료 넣기 (가장 쉬움)</h3>
     <ol>
       <li>PPT 파일(.pptx)을 이 화면에 <b>끌어다 놓거나</b> <b>📄 발표자료 넣기</b>를 누릅니다.</li>
-      <li><b>F5</b>를 누르면 전체화면. 위에는 슬라이드, 아래에는 자막이 나옵니다.</li>
+      <li><b>F5</b>를 누르면 전체화면. 위에는 슬라이드, 아래에는 자막이 나옵니다. (발표자료가 들어가 있을 때 새로고침은 <b>Ctrl+F5</b>)</li>
       <li><b>방향키·스페이스·클릭·프레젠터(리모컨)</b>로 넘깁니다. 나갈 때는 <b>Esc</b>.</li>
     </ol>
     <p>PPT 프로그램을 켤 필요가 없습니다. 애니메이션·동영상은 빠지고, 글꼴이 조금 다를 수 있습니다. 모양이 꼭 같아야 하면 PDF로 저장해서 넣으세요.</p>
@@ -778,7 +778,8 @@ addEventListener("drop", (e) => { e.preventDefault(); document.body.classList.re
 addEventListener("keydown", (e) => {
   if (!deck || e.target.closest("input, select, textarea")) return;
   const k = e.key;
-  if (k === "F5") { e.preventDefault(); $("stage").requestFullscreen?.(); }
+  if (e.ctrlKey || e.altKey || e.metaKey) return;                // Ctrl+F5 등 조합키는 브라우저 기본 동작(새로고침)
+  if (k === "F5") { e.preventDefault(); if (!document.fullscreenElement) $("stage").requestFullscreen?.(); }  // PPT처럼 F5 = 발표 시작
   else if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter", "n"].includes(k)) { e.preventDefault(); goDeck(deckPage + 1); }
   else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace", "p"].includes(k)) { e.preventDefault(); goDeck(deckPage - 1); }
   else if (k === "Home") goDeck(1);
