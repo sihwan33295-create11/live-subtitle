@@ -76,8 +76,8 @@
   .row[data-lang=en] .tag { background: #7fb2ff; }
   .row[data-lang=ru] .tag { background: #8ee0b0; }
   .txt { line-height: 1.38; height: calc(1.38em * var(--lines, 2)); overflow: hidden; display: flex; align-items: flex-end; }
-  .row[data-lang=ko] { font-size: .78em; --lines: 1; }
-  .row[data-lang=ko] .txt { color: #d9d9d9; }
+  .row[data-lang=ko] { --lines: 1; }
+  .row[data-lang=ko] .txt { font-size: .78em; color: #d9d9d9; }   /* 글자만 작게, KO 표시 상자는 다른 언어와 같은 크기 */
   .inner { width: 100%; color: #fff; font-weight: 600; word-break: keep-all; overflow-wrap: anywhere; }
   .prev { color: rgba(255, 255, 255, .5); font-weight: 500; }
   .cur.interim { color: rgba(255, 255, 255, .72); font-style: italic; }
