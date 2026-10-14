@@ -67,7 +67,6 @@
   /* 자막 띠 */
   .subbar { background: rgba(0, 0, 0, .82); padding: .45em 1.2em .55em; display: flex; flex-direction: column; gap: .2em;
     font-size: calc(var(--fs) * var(--mul)); transition: opacity .6s; }
-  .stage.overlay .subbar { position: absolute; left: 0; right: 0; bottom: 0; }
   .subbar.idle { opacity: 0; }
   .toast { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 5; background: rgba(0,0,0,.8); color: #fff;
     border: 1px solid #ffd24d; border-radius: 8px; padding: 6px 16px; font-size: 18px; font-weight: 700; pointer-events: none; }
@@ -121,8 +120,8 @@
   @media (max-width: 700px) {
     .top, .azure, .status { padding-left: 16px; padding-right: 16px; }
     main { padding: 4px 16px 24px; }
-    .stage:not(.overlay) { aspect-ratio: auto; }
-    .stage:not(.overlay) .slide { min-height: 150px; }
+    .stage { aspect-ratio: auto; }
+    .stage .slide { min-height: 150px; }
     .azure input { width: 100%; }
   }
 </style>
@@ -159,12 +158,6 @@
   <input type="file" id="deckFile" accept=".pptx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden>
   <button id="capture" title="PPT 화면을 받아와서 위에 줄여 보여주고, 아래에 자막">🖥 화면 합성 (PPT 안 가림)</button>
   <button id="tv" title="자막만 크게 보이는 새 창. 보조 TV로 옮겨서 사용">📺 자막 전용 화면 (TV용)</button>
-  <div class="ctrl">미리보기
-    <select id="pos">
-      <option value="overlay">슬라이드 위에 겹치기</option>
-      <option value="below">슬라이드 아래 따로</option>
-    </select>
-  </div>
   <button id="full">⛶ 전체화면</button>
 </section>
 
@@ -197,7 +190,7 @@
 <div class="status" id="status">엔진을 고르고 <b>▶ 시작</b>을 누르세요.</div>
 
 <main>
-  <div class="stage overlay" id="stage" tabindex="-1">
+  <div class="stage" id="stage" tabindex="-1">
     <div class="slide" id="slide">
       <div class="logo">GLOBAL CAREER</div>
       <div class="eyebrow">2026 INFORMATION SESSION</div>
@@ -839,8 +832,6 @@ function setLangs(codes) {
 $("langBtn").onclick = () => { $("langPanel").hidden = !$("langPanel").hidden; };
 document.querySelectorAll("[data-preset]").forEach((b) => (b.onclick = () => setLangs(b.dataset.preset.split(","))));
 setLangs(selLangs);
-const applyPos = () => $("stage").classList.toggle("overlay", $("pos").value === "overlay");
-$("pos").onchange = applyPos;
 function applySize() {
   const v = $("size").value;
   const docs = new Set([document, ...[...extraBars].map((b) => b.ownerDocument)]);
@@ -961,7 +952,6 @@ async function openDeck(file) {
   stopCapture();
   deck = d; deckPage = 1;
   $("slide").hidden = true; $("deckView").hidden = false; $("stage").classList.add("deckmode");
-  $("pos").value = "below"; applyPos();
   $("deck").textContent = "📄 다른 발표자료"; $("closeDeck").hidden = false;
   await renderDeck();
   $("stage").focus();
@@ -1029,7 +1019,6 @@ $("capture").onclick = async () => {
   if (deck) closeDeck();
   const v = $("cap");
   v.srcObject = capStream; v.hidden = false; $("slide").hidden = true;
-  $("pos").value = "below"; applyPos();
   $("capture").classList.add("on"); $("capture").textContent = "■ 화면 합성 끄기";
   capStream.getVideoTracks()[0].addEventListener("ended", stopCapture);
   status("<b>화면 합성 중</b> · 이 창을 프로젝터 화면으로 옮기고 <b>⛶ 전체화면</b>을 누르세요.");
@@ -1039,7 +1028,7 @@ $("capture").onclick = async () => {
 if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) $("capture").hidden = true;
 if (matchMedia("(pointer: coarse)").matches && innerWidth < 900) {
   $("tv").hidden = true; $("full").hidden = true;
-  $("size").value = 18; $("pos").value = "below"; applyPos();
+  $("size").value = 18;
   $("engine").value = "azure"; $("azurePanel").hidden = false;
 }
 
