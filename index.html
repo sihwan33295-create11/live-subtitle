@@ -72,6 +72,14 @@
   .row { display: grid; grid-template-columns: 2.4em 1fr; align-items: end; gap: .5em; }
   .tag { font-size: .42em; font-weight: 700; letter-spacing: .06em; text-align: center; border-radius: 4px;
     padding: .25em 0; margin-bottom: .55em; color: #000; }
+  .langPanel { padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
+  .langPanel .presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .langPanel .presets b { margin-right: 4px; font-size: 13px; }
+  .langGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 12px; }
+  .langGrid label { display: flex; gap: 6px; align-items: center; font-size: 14px; cursor: pointer; }
+  .langGrid small { color: #e3a33b; }
+  .langPanel .note { font-size: 13px; color: #9aa3b2; }
+  .langPanel .note.warn { color: #e3a33b; }
   .row.speaking .tag { outline: 2px solid #fff; outline-offset: 1px; }
   .row[data-lang=ko] .tag { background: #ffd24d; }
   .row[data-lang=en] .tag { background: #7fb2ff; }
@@ -130,19 +138,13 @@
   </div>
   <div class="ctrl">말하는 언어
     <select id="srcLang" title="Azure 엔진에서만 적용. 질의응답처럼 언어가 섞이면 '자동'">
-      <option value="auto">자동 (한·영·러 알아서)</option>
-      <option value="ko">한국어</option>
-      <option value="en">English</option>
-      <option value="ru">Русский</option>
     </select>
   </div>
   <div class="ctrl">마이크
     <select id="mic" style="max-width:220px"><option value="">기본 마이크</option></select>
   </div>
-  <div class="ctrl">자막 언어
-    <label class="chk"><input type="checkbox" data-lang="ko" checked>한국어</label>
-    <label class="chk"><input type="checkbox" data-lang="en" checked>English</label>
-    <label class="chk"><input type="checkbox" data-lang="ru" checked>Русский</label>
+  <div class="ctrl">행사 언어
+    <button id="langBtn" title="이 행사에서 쓰는 언어를 고릅니다">🌐 <span id="langSummary">한·영·러</span> ▾</button>
   </div>
   <div class="ctrl">글자 <input type="range" id="size" min="14" max="48" value="26"></div>
   <label class="ctrl chk"><input type="checkbox" id="autohide" checked>말 없으면 5초 뒤 자막 숨기기</label>
@@ -168,6 +170,19 @@
   <span>Azure Speech 키</span><input type="password" id="azKey" placeholder="키 1 붙여넣기" autocomplete="off">
   <span>지역</span><input type="text" id="azRegion" placeholder="예: koreacentral" style="width:150px" autocomplete="off">
   <span class="note">키는 이 기기의 브라우저에만 저장됩니다.</span>
+</section>
+
+<section class="langPanel" id="langPanel" hidden>
+  <div class="presets"><b>국가별 빠른 선택</b>
+    <button data-preset="ko,en,ru">기본 (한·영·러)</button>
+    <button data-preset="ko,vi">베트남 (한·베)</button>
+    <button data-preset="ko,mn-Cyrl">몽골 (한·몽)</button>
+    <button data-preset="ko,en">필리핀·호주 (한·영)</button>
+    <button data-preset="ko,ru,ky">키르기스스탄 (한·러·키르)</button>
+    <button data-preset="ko,ru,kk">카자흐스탄 (한·러·카자흐)</button>
+  </div>
+  <div class="langGrid" id="langGrid"></div>
+  <div class="note" id="langNote"></div>
 </section>
 
 <section class="azure" id="glossPanel">
@@ -230,8 +245,43 @@
 </main>
 
 <script>
-const LANGS = { ko: "KO", en: "EN", ru: "RU" };
-const TARGETS = ["en", "ru"];
+/* 언어 목록: code = 번역 코드, loc = 음성 인식 코드(null이면 Azure가 그 언어 말을 못 알아들음 → 자막만) */
+const CATALOG = [
+  { code: "ko", short: "한", loc: "ko-KR", tag: "KO", name: "한국어" },
+  { code: "en", short: "영", loc: "en-US", tag: "EN", name: "영어 English" },
+  { code: "ru", short: "러", loc: "ru-RU", tag: "RU", name: "러시아어 Русский" },
+  { code: "vi", short: "베", loc: "vi-VN", tag: "VI", name: "베트남어 Tiếng Việt" },
+  { code: "mn-Cyrl", short: "몽", loc: "mn-MN", tag: "MN", name: "몽골어 Монгол" },
+  { code: "fil", short: "필", loc: "fil-PH", tag: "FIL", name: "필리핀어 Filipino" },
+  { code: "ky", short: "키르", loc: null, tag: "KY", name: "키르기스어 Кыргызча" },
+  { code: "kk", short: "카자흐", loc: "kk-KZ", tag: "KK", name: "카자흐어 Қазақша" },
+  { code: "uz", short: "우즈벡", loc: "uz-UZ", tag: "UZ", name: "우즈베크어 O'zbek" },
+  { code: "zh-Hans", short: "중", loc: "zh-CN", tag: "ZH", name: "중국어 中文" },
+  { code: "ja", short: "일", loc: "ja-JP", tag: "JA", name: "일본어 日本語" },
+  { code: "th", short: "태", loc: "th-TH", tag: "TH", name: "태국어 ไทย" },
+  { code: "id", short: "인니", loc: "id-ID", tag: "ID", name: "인도네시아어 Indonesia" },
+  { code: "ms", short: "말레이", loc: "ms-MY", tag: "MS", name: "말레이어 Melayu" },
+  { code: "km", short: "캄", loc: "km-KH", tag: "KM", name: "캄보디아어 ខ្មែរ" },
+  { code: "lo", short: "라오", loc: "lo-LA", tag: "LO", name: "라오스어 ລາວ" },
+  { code: "my", short: "미얀마", loc: "my-MM", tag: "MY", name: "미얀마어 မြန်မာ" },
+  { code: "ne", short: "네팔", loc: "ne-NP", tag: "NE", name: "네팔어 नेपाली" },
+  { code: "hi", short: "힌디", loc: "hi-IN", tag: "HI", name: "힌디어 हिन्दी" },
+  { code: "ar", short: "아랍", loc: "ar-SA", tag: "AR", name: "아랍어 العربية" },
+  { code: "tr", short: "튀르키예", loc: "tr-TR", tag: "TR", name: "튀르키예어 Türkçe" },
+  { code: "es", short: "스페인", loc: "es-ES", tag: "ES", name: "스페인어 Español" },
+  { code: "fr", short: "프랑스", loc: "fr-FR", tag: "FR", name: "프랑스어 Français" },
+  { code: "de", short: "독일", loc: "de-DE", tag: "DE", name: "독일어 Deutsch" },
+];
+const CAT = Object.fromEntries(CATALOG.map((c) => [c.code, c]));
+const TAG_COLORS = ["#f5a3c7", "#c3a6ff", "#ffb27f", "#7fe0e0", "#d6e07f", "#ff9a9a", "#9ad0ff"];
+let selLangs = ["ko", "en", "ru"];
+try { const v = JSON.parse(localStorage.getItem("selLangs") || "null"); if (Array.isArray(v) && v.length) selLangs = v.filter((c) => CAT[c]); } catch {}
+let LANGS = {};                                   // 지금 고른 언어 → 표시 상자 글자
+const hearable = () => selLangs.filter((c) => CAT[c].loc);   // 말을 알아들을 수 있는 언어
+function tagColor(code) {
+  if (["ko", "en", "ru"].includes(code)) return "";
+  return TAG_COLORS[CATALOG.findIndex((c) => c.code === code) % TAG_COLORS.length];
+}
 const $ = (id) => document.getElementById(id);
 
 /* ───── 자막 상태: 현재 문장과 직전 문장만 보관 ───── */
@@ -388,7 +438,7 @@ function allBars() {
   return [$("subbar"), ...extraBars];
 }
 function enabledLangs() {
-  return [...document.querySelectorAll("input[data-lang]")].filter((c) => c.checked).map((c) => c.dataset.lang);
+  return [...selLangs];
 }
 function buildBar(bar) {
   const langs = bar.dataset.only ? [bar.dataset.only] : enabledLangs();
@@ -397,7 +447,7 @@ function buildBar(bar) {
   for (const lang of langs) {
     const row = bar.ownerDocument.createElement("div");
     row.className = "row"; row.dataset.lang = lang;
-    row.innerHTML = `<div class="tag">${LANGS[lang]}</div><div class="txt"><div class="inner"><span class="prev"></span> <span class="cur"></span></div></div>`;
+    row.innerHTML = `<div class="tag" style="${tagColor(lang) ? "background:" + tagColor(lang) : ""}">${LANGS[lang] || lang}</div><div class="txt"><div class="inner"><span class="prev"></span> <span class="cur"></span></div></div>`;
     bar.appendChild(row);
   }
   renderBar(bar);
@@ -521,9 +571,14 @@ function startChrome() {
 
   if ("Translator" in self) {
     const ko2en = makeTranslator("ko", "en");
-    translatorsReady = Promise.all([ko2en, makeTranslator("ko", "ru", ko2en)])
-      .then(([en, ru]) => ({ en, ru }))
-      .catch((e) => { status(`<b>번역 준비 실패:</b> ${e.message}`, true); return null; });
+    ko2en.catch(() => {});
+    translatorsReady = (async () => {
+      const out = {};
+      for (const l of selLangs.filter((c) => c !== "ko")) {
+        try { out[l] = await (l === "en" ? ko2en : makeTranslator("ko", l, ko2en)); } catch {}   // 크롬이 못 하는 언어는 건너뜀
+      }
+      return out;
+    })();
   } else {
     translatorsReady = Promise.resolve(null);
     status("<b>이 브라우저에는 내장 번역 기능이 없습니다.</b> 한국어 자막만 표시됩니다. (PC 크롬 최신 버전 또는 Azure 모드 사용)", true);
@@ -535,7 +590,7 @@ function startChrome() {
     const tr = await translatorsReady;
     if (!tr) return;
     const req = ++reqNo;
-    for (const lang of TARGETS) {
+    for (const lang of Object.keys(tr)) {
       tr[lang].translate(text).then((out) => setText(id, lang, out, isFinal, req)).catch(() => {});
     }
   };
@@ -599,22 +654,24 @@ async function startAzure() {
   status("<b>Azure 연결 중…</b> 마이크 권한 요청이 뜨면 허용해주세요.");
   await loadScript(SDK_URL);
   const SDK = window.SpeechSDK;
-  const src = $("srcLang").value;                 // auto | ko | en | ru
-  const LOCALE = { ko: "ko-KR", en: "en-US", ru: "ru-RU" };
+  const h = hearable();
+  if (!h.length) { status("<b>알아들을 수 있는 언어가 없습니다.</b> 행사 언어에서 말하는 언어를 하나 이상 골라 주세요.", true); return false; }
+  let src = $("srcLang").value;                   // auto 또는 언어 코드
+  if (src === "auto" && h.length === 1) src = h[0];  // 말하는 언어가 하나뿐이면 고정이 더 정확
   let cfg;
   if (src === "auto") {                            // 말하는 언어를 Azure가 문장마다 알아채는 방식(v2 주소 필요)
     cfg = SDK.SpeechTranslationConfig.fromEndpoint(new URL(`wss://${region}.stt.speech.microsoft.com/speech/universal/v2`), key);
     cfg.setProperty(SDK.PropertyId.SpeechServiceConnection_LanguageIdMode, "Continuous");
   } else {
     cfg = SDK.SpeechTranslationConfig.fromSubscription(key, region);
-    cfg.speechRecognitionLanguage = LOCALE[src];
+    cfg.speechRecognitionLanguage = CAT[src].loc;
   }
   Object.keys(LANGS).filter((t) => src === "auto" || t !== src).forEach((t) => cfg.addTargetLanguage(t));
   cfg.setProperty(SDK.PropertyId.SpeechServiceResponse_TranslationRequestStablePartialResult, "true"); // 임시 번역 깜빡임 줄이기
   const micId = $("mic").value;
   const audio = micId ? SDK.AudioConfig.fromMicrophoneInput(micId) : SDK.AudioConfig.fromDefaultMicrophoneInput();
   if (src === "auto") {
-    const lid = SDK.AutoDetectSourceLanguageConfig.fromLanguages(Object.values(LOCALE));
+    const lid = SDK.AutoDetectSourceLanguageConfig.fromLanguages(h.slice(0, 10).map((c) => CAT[c].loc));
     lid.mode = SDK.LanguageIdMode.Continuous;
     azRec = SDK.TranslationRecognizer.FromConfig(cfg, lid, audio);
   } else azRec = new SDK.TranslationRecognizer(cfg, audio);
@@ -629,8 +686,9 @@ async function startAzure() {
     const id = "az" + n, req = Date.now();
     let said = src;                                               // 이번 문장을 어떤 언어로 말했는지
     if (src === "auto") {
-      try { said = (SDK.AutoDetectSourceLanguageResult.fromResult(e.result).language || "").slice(0, 2); } catch {}
-      if (!LANGS[said]) said = "ko";
+      let loc = "";
+      try { loc = SDK.AutoDetectSourceLanguageResult.fromResult(e.result).language || ""; } catch {}
+      said = (h.find((c) => CAT[c].loc === loc) || h.find((c) => CAT[c].loc.slice(0, 2) === loc.slice(0, 2))) || h[0];
     }
     beginSeg(id);
     setText(id, said, e.result.text, isFinal, req);               // 말한 언어 줄에는 원문 그대로
@@ -647,7 +705,7 @@ async function startAzure() {
     if (e.reason === SDK.CancellationReason.Error) { status(`<b>Azure 오류:</b> ${azureError(e.errorDetails || "")}`, true); stop(); }
   };
   azRec.startContinuousRecognitionAsync(
-    () => status(`<b>듣는 중 (Azure)</b> · ${src === "auto" ? "한국어·영어·러시아어 아무거나 말해보세요" : $("srcLang").selectedOptions[0].text + "로 말해보세요"}. (용어 ${words.length}개 반영)`),
+    () => status(`<b>듣는 중 (Azure)</b> · ${src === "auto" ? h.map((c) => CAT[c].name.split(" ")[0]).join("·") + " 중 아무거나 말해보세요" : CAT[src].name.split(" ")[0] + "로 말해보세요"}. (용어 ${words.length}개 반영)`),
     (err) => { status(`<b>Azure 시작 실패:</b> ${azureError(String(err))}`, true); stop(); }
   );
   return true;
@@ -659,7 +717,6 @@ $("srcLang").onchange = async () => {             // 듣는 중에 바꾸면 바
   try { localStorage.setItem("srcLang", $("srcLang").value); } catch {}
   if (running && engineRunning === "azure") { stopAzure(); await new Promise((r) => setTimeout(r, 300)); startAzure(); }
 };
-try { const v = localStorage.getItem("srcLang"); if (v) $("srcLang").value = v; } catch {}
 function stopAzure() { azPhrases = null; if (azRec) { const r = azRec; azRec = null; r.stopContinuousRecognitionAsync(() => r.close(), () => r.close()); } }
 
 /* ───── 마이크 고르기: 꽂은 핀마이크를 화면에서 바로 선택 ───── */
@@ -722,7 +779,38 @@ $("start").onclick = () => (running ? stop() : start());
 
 /* ───── 화면 설정 ───── */
 $("engine").onchange = () => { $("azurePanel").hidden = $("engine").value !== "azure"; };
-document.querySelectorAll("input[data-lang]").forEach((c) => (c.onchange = rebuildAll));
+/* 행사 언어 고르기 */
+function renderLangPanel() {
+  $("langGrid").innerHTML = CATALOG.map((c) => `<label><input type="checkbox" value="${c.code}" ${selLangs.includes(c.code) ? "checked" : ""} ${c.code === "ko" ? "disabled" : ""}>
+    ${c.name}${c.loc ? "" : " <small>(자막만)</small>"}</label>`).join("");
+  $("langGrid").querySelectorAll("input").forEach((i) => (i.onchange = () => {
+    const picked = [...$("langGrid").querySelectorAll("input:checked")].map((x) => x.value);
+    if (picked.length > 10) { i.checked = false; return status("<b>언어는 10개까지 고를 수 있습니다.</b>", true); }
+    setLangs(picked);
+  }));
+}
+function setLangs(codes) {
+  selLangs = ["ko", ...codes.filter((c) => c !== "ko" && CAT[c])];    // 한국어는 항상 포함
+  try { localStorage.setItem("selLangs", JSON.stringify(selLangs)); } catch {}
+  LANGS = Object.fromEntries(selLangs.map((c) => [c, CAT[c].tag]));
+  $("langSummary").textContent = selLangs.map((c) => CAT[c].short).join("·");
+  const h = hearable(), mute = selLangs.filter((c) => !CAT[c].loc);
+  const note = [];
+  if (mute.length) note.push(`${mute.map((c) => CAT[c].name.split(" ")[0]).join(", ")}는 Azure가 말을 알아듣지 못해 <b>자막으로만</b> 나옵니다.`);
+  if (h.length > 4) note.push("알아들을 언어가 많을수록 자동 감지가 헷갈릴 수 있습니다. 행사에서 실제로 말하는 언어만 고르는 게 가장 정확합니다.");
+  $("langNote").innerHTML = note.join(" ");
+  $("langNote").classList.toggle("warn", h.length > 4);
+  // 말하는 언어 칸도 고른 언어에 맞춰 다시 채우기
+  const prev = $("srcLang").value || (() => { try { return localStorage.getItem("srcLang"); } catch { return ""; } })();
+  $("srcLang").innerHTML = `<option value="auto">자동 (고른 언어 알아서)</option>` + h.map((c) => `<option value="${c}">${CAT[c].name}</option>`).join("");
+  $("srcLang").value = h.includes(prev) || prev === "auto" ? prev : "auto";
+  renderLangPanel();
+  rebuildAll();
+  if (running && engineRunning === "azure") { stopAzure(); setTimeout(startAzure, 300); }
+}
+$("langBtn").onclick = () => { $("langPanel").hidden = !$("langPanel").hidden; };
+document.querySelectorAll("[data-preset]").forEach((b) => (b.onclick = () => setLangs(b.dataset.preset.split(","))));
+setLangs(selLangs);
 const applyPos = () => $("stage").classList.toggle("overlay", $("pos").value === "overlay");
 $("pos").onchange = applyPos;
 function applySize() {
@@ -742,7 +830,7 @@ function attachWindow(w, kind) {
   d.title = kind === "tv" ? "자막 전용 화면" : "자막";
   d.body.className = kind;
   d.body.innerHTML = kind === "tv"
-    ? `<div class="tvbar"><select id="only"><option value="">표시 언어: 전체</option><option value="ko">한국어만</option><option value="en">English only</option><option value="ru">Только русский</option></select>
+    ? `<div class="tvbar"><select id="only"><option value="">표시 언어: 전체</option>${selLangs.map((c) => `<option value="${c}">${CAT[c].name}만</option>`).join("")}</select>
        <button id="fs">⛶ 전체화면</button><span>이 창을 TV 화면으로 옮긴 뒤 전체화면을 누르세요 (더블클릭도 됨)</span></div><div class="subbar" id="subbar"></div>`
     : `<div class="subbar" id="subbar"></div>`;
   const bar = d.getElementById("subbar");
