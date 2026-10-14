@@ -69,6 +69,8 @@
     font-size: calc(var(--fs) * var(--mul)); transition: opacity .6s; }
   .stage.overlay .subbar { position: absolute; left: 0; right: 0; bottom: 0; }
   .subbar.idle { opacity: 0; }
+  .toast { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 5; background: rgba(0,0,0,.8); color: #fff;
+    border: 1px solid #ffd24d; border-radius: 8px; padding: 6px 16px; font-size: 18px; font-weight: 700; pointer-events: none; }
   .row { display: grid; grid-template-columns: 2.4em 1fr; align-items: end; gap: .5em; }
   .tag { font-size: .42em; font-weight: 700; letter-spacing: .06em; text-align: center; border-radius: 4px;
     padding: .25em 0; margin-bottom: .55em; color: #000; }
@@ -137,7 +139,7 @@
     </select>
   </div>
   <div class="ctrl">말하는 언어
-    <select id="srcLang" title="Azure 엔진에서만 적용. 질의응답처럼 언어가 섞이면 '자동'">
+    <select id="srcLang" title="Azure 엔진에서만 적용. 질의응답처럼 언어가 섞이면 '자동'. Ctrl+F1 = 자동 ↔ 직전 언어 전환(전체화면에서도)">
     </select>
   </div>
   <div class="ctrl">마이크
@@ -209,6 +211,7 @@
     <div class="deck" id="deckView" hidden><div class="deckBody"></div><div class="pageNo" id="pageNo"></div></div>
     <video id="cap" autoplay muted playsinline hidden></video>
     <div class="subbar" id="subbar"></div>
+    <div class="toast" id="toast" hidden></div>
   </div>
 
   <aside class="help">
@@ -222,6 +225,7 @@
       <li>PPT 파일(.pptx)을 이 화면에 <b>끌어다 놓거나</b> <b>📄 발표자료 넣기</b>를 누릅니다.</li>
       <li><b>F5</b>를 누르면 전체화면. 위에는 슬라이드, 아래에는 자막이 나옵니다. (발표자료가 들어가 있을 때 새로고침은 <b>Ctrl+F5</b>)</li>
       <li><b>방향키·스페이스·클릭·프레젠터(리모컨)</b>로 넘깁니다. 나갈 때는 <b>Esc</b>.</li>
+      <li>발표 중 다른 언어 화자가 나오면 <b>Ctrl+F1</b>: 말하는 언어 <b>자동 ↔ 직전 언어</b> 전환. 화면 위에 잠깐 표시됩니다.</li>
     </ol>
     <p>PPT 프로그램을 켤 필요가 없습니다. 애니메이션·동영상은 빠지고, 글꼴이 조금 다를 수 있습니다. 모양이 꼭 같아야 하면 PDF로 저장해서 넣으세요.</p>
 
@@ -712,8 +716,33 @@ async function startAzure() {
 function showSpeaking(lang) {                    // 지금 말하는 언어의 표시 상자에 테두리
   for (const b of allBars()) b.querySelectorAll(".row").forEach((r) => r.classList.toggle("speaking", r.dataset.lang === lang));
 }
+let lastFixedLang = "";                           // Ctrl+F1로 돌아갈 직전 고정 언어
+try { lastFixedLang = localStorage.getItem("lastFixedLang") || ""; } catch {}
+let toastTimer = null;
+function toast(msg) {                             // 전체화면에서도 보이는 짧은 알림
+  $("toast").textContent = msg; $("toast").hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => ($("toast").hidden = true), 2200);
+}
+function toggleAutoLang() {                       // Ctrl+F1: 자동 ↔ 직전 고정 언어
+  const sel = $("srcLang"), cur = sel.value;
+  if (cur === "auto") {
+    const back = [...sel.options].some((o) => o.value === lastFixedLang) ? lastFixedLang : (sel.options[1] && sel.options[1].value);
+    if (!back) return toast("말하는 언어: 자동 (고정할 언어가 없습니다)");
+    sel.value = back;
+  } else {
+    lastFixedLang = cur;
+    try { localStorage.setItem("lastFixedLang", cur); } catch {}
+    sel.value = "auto";
+  }
+  toast("말하는 언어: " + sel.selectedOptions[0].text.replace(/ \(.*\)$/, ""));
+  sel.onchange();
+}
+addEventListener("keydown", (e) => {
+  if (e.ctrlKey && e.key === "F1") { e.preventDefault(); toggleAutoLang(); }
+});
 $("srcLang").onchange = async () => {             // 듣는 중에 바꾸면 바로 다시 연결
   try { localStorage.setItem("srcLang", $("srcLang").value); } catch {}
+  if ($("srcLang").value !== "auto") { lastFixedLang = $("srcLang").value; try { localStorage.setItem("lastFixedLang", lastFixedLang); } catch {} }
   if (running && engineRunning === "azure") { stopAzure(); await new Promise((r) => setTimeout(r, 300)); startAzure(); }
 };
 function stopAzure() { azPhrases = null; if (azRec) { const r = azRec; azRec = null; r.stopContinuousRecognitionAsync(() => r.close(), () => r.close()); } }
