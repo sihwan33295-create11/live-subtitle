@@ -1032,7 +1032,18 @@ if (matchMedia("(pointer: coarse)").matches && innerWidth < 900) {
   $("engine").value = "azure"; $("azurePanel").hidden = false;
 }
 
+/* 나만의 링크(주소 끝 #k=키&r=지역)로 접속하면 키를 이 기기에 저장하고 주소창에서는 바로 지움.
+   # 뒷부분은 서버로 전송되지 않고 GitHub에도 올라가지 않음 */
+(() => {
+  const h = new URLSearchParams(location.hash.slice(1));
+  const k = (h.get("k") || "").trim();
+  if (!k) return;
+  try { localStorage.setItem("azKey", k); localStorage.setItem("azRegion", (h.get("r") || "koreacentral").trim()); } catch {}
+  history.replaceState(null, "", location.pathname + location.search);
+  status("<b>Azure 키가 이 기기에 저장되었습니다.</b> 다음부터는 그냥 사이트 주소로 들어와도 됩니다.");
+})();
 try { $("azKey").value = localStorage.getItem("azKey") || ""; $("azRegion").value = localStorage.getItem("azRegion") || ""; } catch {}
+if ($("azKey").value) { $("engine").value = "azure"; $("azurePanel").hidden = false; }   // 키가 있으면 바로 Azure로
 applySize();
 buildBar($("subbar"));
 </script>
