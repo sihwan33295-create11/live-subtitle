@@ -65,7 +65,7 @@
   .slide .logo { position: absolute; right: 4%; top: 6%; font-weight: 700; color: #8a96ad; font-size: clamp(10px, 1.2vw, 16px); }
 
   /* 자막 띠 */
-  .subbar { background: rgba(0, 0, 0, .82); padding: .45em 1.2em .55em; display: flex; flex-direction: column; gap: .2em;
+  .subbar { background: rgba(0, 0, 0, var(--subA, .82)); padding: .45em 1.2em .55em; display: flex; flex-direction: column; gap: .2em;
     font-size: calc(var(--fs) * var(--mul)); transition: opacity .6s; }
   .subbar.idle { opacity: 0; }
   .toast { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 5; background: rgba(0,0,0,.8); color: #fff;
@@ -90,6 +90,22 @@
     color: #111; font: 700 11px "Malgun Gothic", system-ui, sans-serif; line-height: 1.2; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
   .stageQr span { display: block; padding: 2px 0 3px; }
   .stage:fullscreen .stageQr { right: 1.2vw; top: 1.2vw; }
+  .setPanel { padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+  .setRow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .langStyleGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 16px; }
+  .langStyleGrid label { display: flex; gap: 8px; align-items: center; }
+  .langStyleGrid .nm { width: 120px; flex: none; }
+  .langStyleGrid input[type=color] { width: 36px; height: 26px; padding: 0; border: 1px solid var(--line); background: none; }
+  .trPanel, .qPanel { padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+  .qCard { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+  .qCard.shown { border-color: #ffd24d; }
+  .qCard .meta { color: #9aa3b2; font-size: 12px; }
+  .qCard .acts { display: flex; gap: 6px; }
+  .qBanner { position: absolute; left: 3%; right: 3%; top: 3%; z-index: 4; background: rgba(20, 24, 32, .94); color: #fff; border: 2px solid #ffd24d;
+    border-radius: 10px; padding: .6em 1em; font-size: calc(var(--fs) * var(--mul) * .72); line-height: 1.35; box-shadow: 0 4px 20px rgba(0,0,0,.5); }
+  .qBanner .qh { color: #ffd24d; font-weight: 700; font-size: .75em; margin-bottom: .2em; }
+  .qBanner .ql { display: flex; gap: .5em; align-items: baseline; }
+  .qBanner .ql i { font-style: normal; font-size: .6em; background: #333; border-radius: 4px; padding: .1em .4em; color: #ccc; flex: none; }
   .row.speaking .tag { outline: 2px solid #fff; outline-offset: 1px; }
   .row[data-lang=ko] .tag { background: #ffd24d; }
   .row[data-lang=en] .tag { background: #7fb2ff; }
@@ -156,8 +172,7 @@
   <div class="ctrl">행사 언어
     <button id="langBtn" title="이 행사에서 쓰는 언어를 고릅니다">🌐 <span id="langSummary">한·영·러</span> ▾</button>
   </div>
-  <div class="ctrl">글자 <input type="range" id="size" min="14" max="48" value="26"></div>
-  <label class="ctrl chk"><input type="checkbox" id="autohide" checked>말 없으면 5초 뒤 자막 숨기기</label>
+  <button id="setBtn" title="글자 크기·색·배경 등 자막 모양 설정">⚙ 자막 설정</button>
   <button id="start" class="primary">▶ 시작</button>
 </header>
 
@@ -169,6 +184,18 @@
   <button id="tv" title="자막만 크게 보이는 새 창. 보조 TV로 옮겨서 사용">📺 자막 전용 화면 (TV용)</button>
   <button id="full">⛶ 전체화면</button>
   <button id="share" title="청중이 QR을 찍으면 자기 휴대폰에서 원하는 언어로 자막을 봅니다">📱 청중 휴대폰 자막 (QR)</button>
+  <button id="qBtn" title="청중이 휴대폰으로 보낸 질문(자동 번역)">💬 청중 질문 (<span id="qCount">0</span>)</button>
+  <button id="trBtn" title="오늘 나온 자막을 파일로 저장">💾 자막 기록 (0)</button>
+</section>
+
+<section class="trPanel" id="trPanel" hidden>
+  <div><b>자막 기록</b> <span class="note">확정된 문장이 시간·말한 언어와 함께 모입니다. 결과보고서 정리용으로 내려받으세요. 새로고침해도 남아 있습니다.</span></div>
+  <div class="shareRow"><button id="trTxt">📄 메모장(TXT)으로 저장</button><button id="trCsv">📊 엑셀(CSV)로 저장</button><button id="trClear">기록 지우기</button></div>
+</section>
+
+<section class="qPanel" id="qPanel" hidden>
+  <div><b>청중 질문</b> <span class="note">청중이 휴대폰에서 보낸 질문이 자동 번역되어 모입니다. <b>화면에 띄우기</b>를 누르면 발표 화면과 청중 휴대폰에 모든 언어로 표시됩니다. 전체화면 중에는 <b>Ctrl+F2</b>로 최근 질문 띄우기·내리기.</span></div>
+  <div id="qList"><div class="note">아직 질문이 없습니다.</div></div>
 </section>
 
 <section class="sharePanel" id="sharePanel" hidden>
@@ -191,7 +218,17 @@
 <section class="azure" id="azurePanel" hidden>
   <span>Azure Speech 키</span><input type="password" id="azKey" placeholder="키 1 붙여넣기" autocomplete="off">
   <span>지역</span><input type="text" id="azRegion" placeholder="예: koreacentral" style="width:150px" autocomplete="off">
+  <span>번역 키(질문용)</span><input type="password" id="trKey" placeholder="Translator 키" autocomplete="off" style="width:200px">
   <span class="note">키는 이 기기의 브라우저에만 저장됩니다.</span>
+</section>
+
+<section class="setPanel" id="setPanel" hidden>
+  <div class="setRow"><b>전체 글자 크기</b><input type="range" id="size" min="14" max="48" value="26"><span id="sizeVal" class="note"></span></div>
+  <div class="setRow"><b>자막 배경 진하기</b><input type="range" id="bgAlpha" min="0" max="100" value="82"><span id="bgVal" class="note"></span></div>
+  <label class="chk"><input type="checkbox" id="autohide" checked>말 없으면 5초 뒤 자막 숨기기</label>
+  <div><b>언어별 글자</b> <span class="note">언어마다 크기와 색을 따로 정합니다. TV용 화면에도 같이 적용됩니다.</span></div>
+  <div class="langStyleGrid" id="langStyleGrid"></div>
+  <div><button id="styleReset">모양 기본값으로</button></div>
 </section>
 
 <section class="langPanel" id="langPanel" hidden>
@@ -232,6 +269,7 @@
     <video id="cap" autoplay muted playsinline hidden></video>
     <div class="subbar" id="subbar"></div>
     <div class="toast" id="toast" hidden></div>
+    <div class="qBanner" id="qBanner" hidden></div>
     <div class="stageQr" id="stageQr" hidden><div id="stageQrImg"></div><span>휴대폰 자막</span></div>
   </div>
 
@@ -252,6 +290,12 @@
 
     <h3>📱 청중 휴대폰 자막</h3>
     <p><b>📱 청중 휴대폰 자막 (QR)</b>을 누르면 QR이 나옵니다. 청중이 찍으면 각자 휴대폰에서 원하는 언어로 자막을 보고, <b>🔊 소리로 듣기</b>로 음성으로도 들을 수 있습니다. "발표 화면 구석에 QR 띄우기"를 켜면 슬라이드 오른쪽 위에 QR이 함께 나옵니다. 방 코드는 기억되어 다음 행사에도 같은 QR을 쓸 수 있고, 바꾸려면 <b>새 방 코드</b>.</p>
+
+    <h3>💬 청중 질문</h3>
+    <p>청중 휴대폰 화면의 <b>질문하기</b>로 보낸 질문이 자동 번역되어 <b>💬 청중 질문</b>에 모입니다. <b>화면에 띄우기</b>를 누르면 발표 화면 위쪽과 청중 휴대폰에 모든 언어로 보입니다. 전체화면 중에는 <b>Ctrl+F2</b>.</p>
+
+    <h3>💾 자막 기록</h3>
+    <p>나온 자막과 질문이 시간순으로 모입니다. <b>메모장(TXT)</b>이나 <b>엑셀(CSV)</b>로 저장해 결과보고서 정리에 쓰세요.</p>
 
     <h3>🖥 화면 합성</h3>
     <ol>
@@ -283,7 +327,8 @@ const CATALOG = [
   { code: "fil", short: "필", loc: "fil-PH", tag: "FIL", name: "필리핀어 Filipino" },
   { code: "kk", short: "카자흐", loc: "kk-KZ", tag: "KK", name: "카자흐어 Қазақша" },
   { code: "uz", short: "우즈벡", loc: "uz-UZ", tag: "UZ", name: "우즈베크어 O'zbek" },
-  { code: "zh-Hans", short: "중", loc: "zh-CN", tag: "ZH", name: "중국어 中文" },
+  { code: "zh-Hans", short: "중간", loc: "zh-CN", tag: "ZH", name: "중국어 간체 中文(简体)" },
+  { code: "zh-Hant", short: "중번", loc: "zh-TW", tag: "ZH-T", name: "중국어 번체 中文(繁體)" },
   { code: "ja", short: "일", loc: "ja-JP", tag: "JA", name: "일본어 日本語" },
   { code: "th", short: "태", loc: "th-TH", tag: "TH", name: "태국어 ไทย" },
   { code: "id", short: "인니", loc: "id-ID", tag: "ID", name: "인도네시아어 Indonesia" },
@@ -300,6 +345,7 @@ const CATALOG = [
   { code: "de", short: "독일", loc: "de-DE", tag: "DE", name: "독일어 Deutsch" },
 ];
 const CAT = Object.fromEntries(CATALOG.map((c) => [c.code, c]));
+const koName = (c) => (CAT[c] ? CAT[c].name.split(" ").filter((w) => /[가-힣]/.test(w)).join(" ") : c);   // "중국어 번체"처럼 한글 부분만
 const TAG_COLORS = ["#f5a3c7", "#c3a6ff", "#ffb27f", "#7fe0e0", "#d6e07f", "#ff9a9a", "#9ad0ff"];
 let selLangs = ["ko", "en", "ru"];
 try { const v = JSON.parse(localStorage.getItem("selLangs") || "null"); if (Array.isArray(v) && v.length) selLangs = v.filter((c) => CAT[c]); } catch {}
@@ -345,8 +391,9 @@ async function loadGlossary() {
     if (!res.ok) throw new Error(res.status);
     const rows = parseCSV(await res.text()).slice(1);   // 첫 줄은 제목
     commonTerms = rows.filter((r) => (r[1] || "").trim()).map((r) => ({
-      ko: r[1].trim(), en: (r[3] || "").trim(), ru: (r[5] || "").trim(),
-      fix: { ko: splitAlt(r[2]), en: splitAlt(r[4]), ru: splitAlt(r[6]) },
+      ko: r[1].trim(), en: (r[3] || "").trim(), ru: (r[5] || "").trim(), vi: (r[7] || "").trim(), "mn-Cyrl": (r[9] || "").trim(),
+      fix: { ko: splitAlt(r[2]), en: splitAlt(r[4]), ru: splitAlt(r[6]), vi: splitAlt(r[8]), "mn-Cyrl": splitAlt(r[10]) },
+      cond: normCond(r[11]),
     }));
     updateGlossInfo();
   } catch {
@@ -354,10 +401,18 @@ async function loadGlossary() {
   }
   buildFixRules();
 }
+const FIX_LANGS = ["ko", "en", "ru", "vi", "mn-Cyrl"];
+function normCond(v) {                            // "몽골어"·"mn" 등 → 언어 코드 (빈칸이면 항상 적용)
+  v = (v || "").trim(); if (!v) return "";
+  const hit = CATALOG.find((c) => c.code === v || c.name.split(" ")[0] === v || c.name.startsWith(v) || (/^[a-z]{2}/i.test(v) && c.code.slice(0, 2) === v.slice(0, 2).toLowerCase()));
+  return hit ? hit.code : v;
+}
+let curSaid = "ko";                               // 지금 문장을 말한 언어(교정 조건·자막 기록용)
+const segSaid = {};
 function eventTerms() {                          // "한국어=English=Русский" 형식, 영어·러시아어는 생략 가능
   return $("eventTerms").value.split(/[,，\n]/).map((x) => x.trim()).filter(Boolean).map((x) => {
     const [ko, en = "", ru = ""] = x.split("=").map((p) => p.trim());
-    return { ko, en, ru, fix: { ko: [], en: [], ru: [] } };
+    return { ko, en, ru, fix: {} };
   }).filter((t) => t.ko);
 }
 let docTerms = [];                               // 발표자료에서 뽑은 단어(인식 힌트용, 번역 교정 없음)
@@ -415,25 +470,29 @@ function useDocTerms(words) {
 }
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function buildFixRules() {
-  const rules = { ko: [], en: [], ru: [] };
+  const rules = {};
+  FIX_LANGS.forEach((l) => (rules[l] = []));
   for (const t of allTerms()) {
-    for (const lang of ["ko", "en", "ru"]) {
+    for (const lang of FIX_LANGS) {
       if (!t[lang]) continue;
-      for (const wrong of t.fix[lang]) rules[lang].push([wrong, t[lang]]);
+      for (const wrong of (t.fix && t.fix[lang]) || []) rules[lang].push([wrong, t[lang], t.cond || ""]);
     }
   }
-  for (const lang of ["ko", "en", "ru"]) {
+  for (const lang of FIX_LANGS) {
     rules[lang].sort((a, b) => b[0].length - a[0].length);   // 긴 표기부터 바꿔야 겹침 오류가 없음
-    rules[lang] = rules[lang].map(([wrong, right]) => [
+    rules[lang] = rules[lang].map(([wrong, right, cond]) => [
       lang === "ko" ? new RegExp(escRe(wrong), "g")
-                    : new RegExp(`(?<![\\p{L}\\p{N}])${escRe(wrong)}(?![\\p{L}\\p{N}])`, "gu"),  // 영어·러시아어는 단어 단위로만
-      right,
+                    : new RegExp(`(?<![\\p{L}\\p{N}])${escRe(wrong)}(?![\\p{L}\\p{N}])`, "gu"),  // 한국어 외에는 단어 단위로만
+      right, cond,
     ]);
   }
   fixRules = rules;
 }
-function applyGlossary(lang, text) {
-  for (const [re, right] of fixRules[lang] || []) text = text.replace(re, right);
+function applyGlossary(lang, text, said) {
+  for (const [re, right, cond] of fixRules[lang] || []) {
+    if (cond && cond !== said) continue;          // "몽골어로 말했을 때만" 같은 조건
+    text = text.replace(re, right);
+  }
   return text;
 }
 try { $("eventTerms").value = localStorage.getItem("eventTerms") || ""; } catch {}
@@ -444,7 +503,7 @@ $("eventTerms").addEventListener("input", () => {
 loadGlossary();
 
 function setText(id, lang, text, isFinal, req) {
-  text = applyGlossary(lang, text);
+  text = applyGlossary(lang, text, segSaid[id] || curSaid);
   const s = seg(id);
   if (s.fin[lang] && !isFinal) return;              // 확정된 뒤 늦게 온 임시 결과는 무시
   if (!isFinal && (s.req[lang] || 0) > req) return; // 더 오래된 임시 결과는 무시
@@ -454,6 +513,50 @@ function setText(id, lang, text, isFinal, req) {
   lastActivity = Date.now();
   render();
   relayMark(id);
+  if (isFinal && text) logFinal(id, lang, text);
+}
+/* 자막 기록: 확정된 문장을 모아 두었다가 TXT·엑셀(CSV)로 내려받기. 새로고침해도 남도록 브라우저에 저장 */
+let transcript = [];
+try { transcript = JSON.parse(localStorage.getItem("transcript") || "[]"); } catch {}
+const trIndex = new Map();
+let trSaveTimer = null;
+function logFinal(id, lang, text) {
+  let row = trIndex.get(id);
+  if (!row) { row = { t: Date.now(), said: segSaid[id] || curSaid, text: {} }; trIndex.set(id, row); transcript.push(row); }
+  row.text[lang] = text;
+  saveTranscriptSoon();
+}
+function saveTranscriptSoon() {
+  clearTimeout(trSaveTimer);
+  trSaveTimer = setTimeout(() => { try { localStorage.setItem("transcript", JSON.stringify(transcript.slice(-3000))); } catch {} }, 800);
+  const b = document.getElementById("trBtn"); if (b) b.textContent = `💾 자막 기록 (${transcript.length})`;
+}
+function trLangs() { const set = new Set(); transcript.forEach((r) => Object.keys(r.text).forEach((l) => set.add(l))); return [...set].sort((a, b) => (a === "ko" ? -1 : b === "ko" ? 1 : 0)); }
+const hhmmss = (t) => new Date(t).toTimeString().slice(0, 8);
+const langName = (c) => (CAT[c] ? koName(c) : c);
+function download(name, text, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function trFileName(ext) { const d = new Date(), z = (n) => String(n).padStart(2, "0"); return `자막기록_${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}.${ext}`; }
+function exportTxt() {
+  const langs = trLangs();
+  const out = [`자막 기록 (${new Date().toLocaleString("ko-KR")})`, ""];
+  for (const r of transcript) {
+    const src = r.text[r.said] ? r.said : langs.find((l) => r.text[l]);
+    out.push(`[${hhmmss(r.t)}] ${r.q ? "질문" + (r.name ? "(" + r.name + ")" : "") + " · " : ""}${langName(src)}: ${r.text[src] || ""}`);
+    for (const l of langs) if (l !== src && r.text[l]) out.push(`    ${langName(l)}: ${r.text[l]}`);
+    out.push("");
+  }
+  download(trFileName("txt"), "\ufeff" + out.join("\r\n"), "text/plain;charset=utf-8");
+}
+function exportCsv() {
+  const langs = trLangs(), q = (v) => '"' + String(v || "").replace(/"/g, '""') + '"';
+  const lines = [["시간", "구분", "말한 언어", ...langs.map(langName)].map(q).join(",")];
+  for (const r of transcript) lines.push([hhmmss(r.t), r.q ? "질문" : "발표", langName(r.said), ...langs.map((l) => r.text[l])].map(q).join(","));
+  download(trFileName("csv"), "\ufeff" + lines.join("\r\n"), "text/csv;charset=utf-8");
 }
 
 /* ───── 청중 휴대폰 자막: Supabase 실시간 방송(포털 프로젝트의 공개 키, DB 표는 사용 안 함) ───── */
@@ -494,8 +597,10 @@ async function startShare(room) {
   const ch = window.__sb.channel("live-" + room, { config: { broadcast: { self: false }, presence: { key: "host" } } });
   ch.on("broadcast", { event: "join" }, () => {      // 새로 들어온 청중에게 언어 목록과 최근 문장 보내기
     ch.send({ type: "broadcast", event: "hello", payload: { langs: langsPayload() } });
+    if (shownQ) { const q = questions.find((x) => x.qid === shownQ); if (q) ch.send({ type: "broadcast", event: "qshow", payload: { qid: q.qid, name: q.name, text: q.text, orig: q.orig } }); }
     ch.send({ type: "broadcast", event: "seg", payload: { items: [...relayHist.values()] } });
   });
+  ch.on("broadcast", { event: "q" }, ({ payload }) => onQuestion(payload || {}));
   ch.on("presence", { event: "sync" }, () => {
     const n = Object.keys(ch.presenceState()).filter((k) => k !== "host").length;
     $("viewerCount").textContent = `접속한 휴대폰 ${n}대`;
@@ -517,6 +622,84 @@ async function drawQr(el, text, size) {
   el.innerHTML = "";
   new QRCode(el, { text, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
 }
+/* 청중 질문: 휴대폰 → (번역) → 발표자 목록 → 화면·휴대폰에 띄우기 */
+const questions = [];
+let shownQ = null;
+async function translateText(text, targets) {
+  const key = $("trKey").value.trim();
+  if (!key || !targets.length) return null;
+  const to = targets.map((t) => "&to=" + encodeURIComponent(t)).join("");
+  const r = await fetch("https://api.cognitive.microsofttranslator.com/translate?api-version=3.0" + to, {
+    method: "POST",
+    headers: { "Ocp-Apim-Subscription-Key": key, "Ocp-Apim-Subscription-Region": $("azRegion").value.trim() || "koreacentral", "Content-Type": "application/json" },
+    body: JSON.stringify([{ Text: text }]),
+  });
+  if (!r.ok) throw new Error("번역 실패 " + r.status);
+  const j = (await r.json())[0];
+  const out = {}; for (const t of j.translations) out[t.to] = t.text;
+  return { detected: (j.detectedLanguage && j.detectedLanguage.language) || "", text: out };
+}
+function codeFromDetected(d) {
+  if (!d) return "";
+  return (CATALOG.find((c) => c.code === d) || CATALOG.find((c) => c.code.slice(0, 2) === d.slice(0, 2)) || { code: d }).code;
+}
+async function onQuestion(p) {
+  const text = String(p.text || "").slice(0, 300).trim(); if (!text) return;
+  const q = { qid: p.qid || Math.random().toString(36).slice(2), name: String(p.name || "").slice(0, 20), orig: text, src: "", text: {}, t: Date.now() };
+  questions.push(q);
+  try {
+    const tr = await translateText(text, selLangs);
+    if (tr) { q.src = codeFromDetected(tr.detected); q.text = tr.text; }
+  } catch (e) { status("<b>질문 번역 실패:</b> 번역 키를 확인해 주세요. (원문은 그대로 보입니다)", true); }
+  if (!q.src) q.src = p.lang || "";
+  if (q.src) q.text[q.src] = text;
+  transcript.push({ t: q.t, q: true, name: q.name, said: q.src || "ko", text: { ...q.text, ...(q.src ? {} : { ko: text }) } }); saveTranscriptSoon();
+  renderQuestions();
+  toast("💬 새 질문: " + (q.text.ko || text).slice(0, 40));
+}
+function renderQuestions() {
+  $("qCount").textContent = questions.length;
+  if (!questions.length) return;
+  $("qList").innerHTML = questions.slice().reverse().map((q) => `<div class="qCard ${shownQ === q.qid ? "shown" : ""}">
+    <div class="meta">${hhmmss(q.t)} · ${q.name ? q.name.replace(/</g, "&lt;") + " · " : ""}${q.src ? langName(q.src) + "로 질문" : "언어 미확인"}</div>
+    <div><b>${(q.text.ko || q.orig).replace(/</g, "&lt;")}</b></div>
+    ${q.src && q.src !== "ko" ? `<div class="note">원문: ${q.orig.replace(/</g, "&lt;")}</div>` : ""}
+    <div class="acts">${shownQ === q.qid ? `<button data-hide="${q.qid}">화면에서 내리기</button>` : `<button data-show="${q.qid}">화면에 띄우기</button>`}</div>
+  </div>`).join("");
+  $("qList").querySelectorAll("[data-show]").forEach((b) => (b.onclick = () => showQuestion(b.dataset.show)));
+  $("qList").querySelectorAll("[data-hide]").forEach((b) => (b.onclick = hideQuestion));
+}
+function showQuestion(qid) {
+  const q = questions.find((x) => x.qid === qid); if (!q) return;
+  shownQ = qid;
+  const lines = selLangs.filter((l) => q.text[l]).map((l) => `<div class="ql"><i>${CAT[l].tag}</i><span>${q.text[l].replace(/</g, "&lt;")}</span></div>`).join("") ||
+    `<div class="ql"><span>${q.orig.replace(/</g, "&lt;")}</span></div>`;
+  $("qBanner").innerHTML = `<div class="qh">💬 질문${q.name ? " · " + q.name.replace(/</g, "&lt;") : ""}</div>${lines}`;
+  $("qBanner").hidden = false;
+  if (shareCh) shareCh.send({ type: "broadcast", event: "qshow", payload: { qid, name: q.name, text: q.text, orig: q.orig } });
+  renderQuestions();
+}
+function hideQuestion() {
+  shownQ = null; $("qBanner").hidden = true;
+  if (shareCh) shareCh.send({ type: "broadcast", event: "qhide", payload: {} });
+  renderQuestions();
+}
+$("qBanner").onclick = hideQuestion;
+addEventListener("keydown", (e) => {
+  if (e.ctrlKey && e.key === "F2") {
+    e.preventDefault();
+    if (shownQ) hideQuestion(); else if (questions.length) showQuestion(questions[questions.length - 1].qid); else toast("아직 질문이 없습니다");
+  }
+});
+$("qBtn").onclick = () => { $("qPanel").hidden = !$("qPanel").hidden; };
+$("trBtn").onclick = () => { $("trPanel").hidden = !$("trPanel").hidden; };
+$("trTxt").onclick = () => (transcript.length ? exportTxt() : status("아직 저장할 자막이 없습니다."));
+$("trCsv").onclick = () => (transcript.length ? exportCsv() : status("아직 저장할 자막이 없습니다."));
+$("trClear").onclick = () => {
+  if (!transcript.length) return;
+  if (!confirm(`자막 기록 ${transcript.length}줄을 지울까요? 지우기 전에 저장해 두세요.`)) return;
+  transcript = []; trIndex.clear(); saveTranscriptSoon();
+};
 function stopShare() {
   if (shareCh) { try { shareCh.unsubscribe(); } catch {} }
   shareCh = null; shareOn = false;
@@ -693,6 +876,7 @@ function startChrome() {
     }
   };
   const onKorean = (id, text, isFinal) => {
+    curSaid = "ko"; segSaid[id] = "ko";
     beginSeg(id);
     setText(id, "ko", text, isFinal, Date.now());
     clearTimeout(pending);
@@ -745,6 +929,7 @@ function azureError(detail) {
   if (/quota|429|throttl/i.test(detail)) return "무료 사용량 한도에 걸렸습니다. 잠시 뒤 다시 해보세요.";
   return detail;
 }
+let azRun = 0;
 async function startAzure() {
   const key = $("azKey").value.trim(), region = $("azRegion").value.trim().toLowerCase().replace(/\s+/g, "");
   if (!key || !region) { status("<b>Azure 키와 지역을 입력해주세요.</b>", true); $("azurePanel").hidden = false; return false; }
@@ -773,21 +958,22 @@ async function startAzure() {
     lid.mode = SDK.LanguageIdMode.Continuous;
     azRec = SDK.TranslationRecognizer.FromConfig(cfg, lid, audio);
   } else azRec = new SDK.TranslationRecognizer(cfg, audio);
-  const words = [...new Set(allTerms().map((t) => t.ko))].slice(0, 500);
+  const words = [...new Set(allTerms().flatMap((t) => [t.ko, ...selLangs.filter((l) => l !== "ko").map((l) => t[l])]).filter(Boolean))].slice(0, 500);
   try {                                                           // 용어집·발표자료 단어를 미리 알려줘서 인식률 높이기
     azPhrases = SDK.PhraseListGrammar.fromRecognizer(azRec);
     azPhrases.addPhrases(words);
   } catch { azPhrases = null; }
-  let n = 0, open = false;
+  let n = 0, open = false; const run = ++azRun;   // 다시 연결해도 문장 번호가 겹치지 않게
   const apply = (e, isFinal) => {
     if (!open) { n++; open = true; }
-    const id = "az" + n, req = Date.now();
+    const id = "az" + run + "-" + n, req = Date.now();
     let said = src;                                               // 이번 문장을 어떤 언어로 말했는지
     if (src === "auto") {
       let loc = "";
       try { loc = SDK.AutoDetectSourceLanguageResult.fromResult(e.result).language || ""; } catch {}
       said = (h.find((c) => CAT[c].loc === loc) || h.find((c) => CAT[c].loc.slice(0, 2) === loc.slice(0, 2))) || h[0];
     }
+    curSaid = said; segSaid[id] = said;
     beginSeg(id);
     setText(id, said, e.result.text, isFinal, req);               // 말한 언어 줄에는 원문 그대로
     for (const t of Object.keys(LANGS)) {
@@ -803,7 +989,7 @@ async function startAzure() {
     if (e.reason === SDK.CancellationReason.Error) { status(`<b>Azure 오류:</b> ${azureError(e.errorDetails || "")}`, true); stop(); }
   };
   azRec.startContinuousRecognitionAsync(
-    () => status(`<b>듣는 중 (Azure)</b> · ${src === "auto" ? h.map((c) => CAT[c].name.split(" ")[0]).join("·") + " 중 아무거나 말해보세요" : CAT[src].name.split(" ")[0] + "로 말해보세요"}. (용어 ${words.length}개 반영)`),
+    () => status(`<b>듣는 중 (Azure)</b> · ${src === "auto" ? h.map((c) => koName(c)).join("·") + " 중 아무거나 말해보세요" : koName(src) + "로 말해보세요"}. (용어 ${words.length}개 반영)`),
     (err) => { status(`<b>Azure 시작 실패:</b> ${azureError(String(err))}`, true); stop(); }
   );
   return true;
@@ -873,7 +1059,7 @@ function keepScreenOn() {                       // 폰 화면이 꺼지지 않�
 }
 document.addEventListener("visibilitychange", keepScreenOn);
 async function start() {
-  clearSubs();
+  clearSubs(); trIndex.clear();              // 문장 번호가 다시 시작돼도 이전 기록과 섞이지 않게
   const engine = $("engine").value;
   running = true; engineRunning = engine; syncButton(); keepScreenOn();
   let ok = true;
@@ -919,7 +1105,7 @@ function setLangs(codes) {
   $("langSummary").textContent = selLangs.map((c) => CAT[c].short).join("·");
   const h = hearable(), mute = selLangs.filter((c) => !CAT[c].loc);
   const note = [];
-  if (mute.length) note.push(`${mute.map((c) => CAT[c].name.split(" ")[0]).join(", ")}는 Azure가 말을 알아듣지 못해 <b>자막으로만</b> 나옵니다.`);
+  if (mute.length) note.push(`${mute.map((c) => koName(c)).join(", ")}는 Azure가 말을 알아듣지 못해 <b>자막으로만</b> 나옵니다.`);
   if (h.length > 4) note.push("알아들을 언어가 많을수록 자동 감지가 헷갈릴 수 있습니다. 행사에서 실제로 말하는 언어만 고르는 게 가장 정확합니다.");
   $("langNote").innerHTML = note.join(" ");
   $("langNote").classList.toggle("warn", h.length > 4);
@@ -952,7 +1138,48 @@ function applySize() {
   const docs = new Set([document, ...[...extraBars].map((b) => b.ownerDocument)]);
   for (const d of docs) { d.documentElement.style.setProperty("--fs", v + "px"); d.documentElement.style.setProperty("--fsn", v); }
 }
-$("size").oninput = applySize;
+$("size").oninput = () => { applySize(); try { localStorage.setItem("fsize", $("size").value); } catch {} };
+/* 자막 설정: 배경 진하기 + 언어별 크기·색 */
+let langStyle = {};
+try { langStyle = JSON.parse(localStorage.getItem("langStyle") || "{}"); const f = localStorage.getItem("fsize"); if (f) $("size").value = f;
+  const a = localStorage.getItem("bgAlpha"); if (a) $("bgAlpha").value = a; } catch {}
+function styleDocs() { return new Set([document, ...[...extraBars].map((b) => b.ownerDocument)]); }
+function applyLangStyle() {
+  const css = Object.entries(langStyle).map(([c, v]) => {
+    const base = c === "ko" ? .78 : 1, sc = (v.scale || 100) / 100, sel = `.row[data-lang="${c}"]`;
+    return `${sel} .txt{font-size:${(base * sc).toFixed(3)}em}` +
+      (v.color ? `${sel} .inner,${sel} .txt{color:${v.color}}${sel} .prev{color:${v.color};opacity:.55}${sel} .cur.interim{color:${v.color};opacity:.75}` : "");
+  }).join("\n");
+  const alpha = (+$("bgAlpha").value / 100).toFixed(2);
+  for (const d of styleDocs()) {
+    let el = d.getElementById("langStyle");
+    if (!el) { el = d.createElement("style"); el.id = "langStyle"; d.head.appendChild(el); }
+    el.textContent = css;
+    d.documentElement.style.setProperty("--subA", alpha);
+  }
+  $("sizeVal").textContent = $("size").value + "px"; $("bgVal").textContent = $("bgAlpha").value + "%";
+}
+function renderStyleGrid() {
+  $("langStyleGrid").innerHTML = selLangs.map((c) => {
+    const v = langStyle[c] || {};
+    const opts = [70, 80, 90, 100, 115, 130, 150, 175].map((n) => `<option value="${n}" ${(v.scale || 100) === n ? "selected" : ""}>${n}%</option>`).join("");
+    return `<label><span class="nm">${koName(c)}</span><select data-c="${c}" data-k="scale">${opts}</select>
+      <input type="color" data-c="${c}" data-k="color" value="${v.color || (c === "ko" ? "#d9d9d9" : "#ffffff")}" title="글자 색"></label>`;
+  }).join("");
+  $("langStyleGrid").querySelectorAll("[data-c]").forEach((el) => (el.oninput = el.onchange = () => {
+    const c = el.dataset.c; langStyle[c] = langStyle[c] || {};
+    langStyle[c][el.dataset.k] = el.dataset.k === "scale" ? +el.value : el.value;
+    try { localStorage.setItem("langStyle", JSON.stringify(langStyle)); } catch {}
+    applyLangStyle();
+  }));
+}
+$("bgAlpha").oninput = () => { try { localStorage.setItem("bgAlpha", $("bgAlpha").value); } catch {} applyLangStyle(); };
+$("styleReset").onclick = () => {
+  langStyle = {}; $("bgAlpha").value = 82; $("size").value = 26;
+  try { localStorage.removeItem("langStyle"); localStorage.removeItem("bgAlpha"); localStorage.removeItem("fsize"); } catch {}
+  applySize(); renderStyleGrid(); applyLangStyle();
+};
+$("setBtn").onclick = () => { $("setPanel").hidden = !$("setPanel").hidden; if (!$("setPanel").hidden) renderStyleGrid(); };
 $("full").onclick = () => $("stage").requestFullscreen?.();
 
 /* 따로 띄운 창(항상 위 창, TV 창)에 자막 띠 붙이기 */
@@ -976,6 +1203,7 @@ function attachWindow(w, kind) {
     d.getElementById("only").onchange = (e) => { bar.dataset.only = e.target.value; buildBar(bar); };
   }
   applySize();
+  applyLangStyle();
   buildBar(bar);
 }
 
@@ -1153,11 +1381,13 @@ if (matchMedia("(pointer: coarse)").matches && innerWidth < 900) {
   const h = new URLSearchParams(location.hash.slice(1));
   const k = (h.get("k") || "").trim();
   if (!k) return;
-  try { localStorage.setItem("azKey", k); localStorage.setItem("azRegion", (h.get("r") || "koreacentral").trim()); } catch {}
+  try { localStorage.setItem("azKey", k); localStorage.setItem("azRegion", (h.get("r") || "koreacentral").trim()); if (h.get("t")) localStorage.setItem("trKey", h.get("t").trim()); } catch {}
   history.replaceState(null, "", location.pathname + location.search);
   status("<b>Azure 키가 이 기기에 저장되었습니다.</b> 다음부터는 그냥 사이트 주소로 들어와도 됩니다.");
 })();
-try { $("azKey").value = localStorage.getItem("azKey") || ""; $("azRegion").value = localStorage.getItem("azRegion") || ""; } catch {}
+try { $("azKey").value = localStorage.getItem("azKey") || ""; $("azRegion").value = localStorage.getItem("azRegion") || ""; $("trKey").value = localStorage.getItem("trKey") || ""; } catch {}
+$("trKey").onchange = () => { try { localStorage.setItem("trKey", $("trKey").value.trim()); } catch {} };
+applyLangStyle(); saveTranscriptSoon();
 if ($("azKey").value) { $("engine").value = "azure"; $("azurePanel").hidden = false; }   // 키가 있으면 바로 Azure로
 applySize();
 buildBar($("subbar"));
