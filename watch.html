@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>실시간 자막</title>
+<style>
+  :root { --bg: #0e1116; --panel: #171b22; --line: #2a303a; --text: #f2f4f7; --dim: #9aa3b2; --accent: #ffd24d; --fs: 22px; }
+  :root[data-theme="light"] { --bg: #f6f7f9; --panel: #fff; --line: #dde1e7; --text: #141820; --dim: #5d6675; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .top { display: flex; align-items: center; gap: 8px; }
+  .top b { font-size: 16px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #e5484d; flex: none; }
+  .dot.on { background: #3fb950; }
+  #state { font-size: 13px; color: var(--dim); flex: 1; }
+  .langs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+  .langs button { flex: none; border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 999px; padding: 6px 12px; font-size: 14px; }
+  .langs button.sel { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 700; }
+  .tools { display: flex; gap: 6px; align-items: center; }
+  .tools button { border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 8px; padding: 6px 10px; font-size: 14px; }
+  .tools button.on { background: #2b5fd9; border-color: #2b5fd9; color: #fff; }
+  main { flex: 1; overflow-y: auto; padding: 14px 16px 40vh; }
+  .line { font-size: var(--fs); line-height: 1.5; margin: 0 0 .7em; word-break: keep-all; overflow-wrap: anywhere; }
+  .line.interim { color: var(--dim); font-style: italic; }
+  .empty { color: var(--dim); text-align: center; margin-top: 30vh; font-size: 16px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<header>
+  <div class="top"><span class="dot" id="dot"></span><b>실시간 자막</b><span id="state">연결 중…</span></div>
+  <div class="langs" id="langs"></div>
+  <div class="tools">
+    <button id="smaller" aria-label="글자 작게">가−</button>
+    <button id="bigger" aria-label="글자 크게">가+</button>
+    <button id="tts" title="자막을 소리로 읽어 줍니다">🔊 소리로 듣기</button>
+    <button id="theme" aria-label="밝게/어둡게">◐</button>
+  </div>
+</header>
+<main id="log"><div class="empty" id="empty">발표가 시작되면 여기에 자막이 나옵니다.<br>위에서 보고 싶은 언어를 고르세요.</div></main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SB_URL = "https://obqrlybfnrnuhscohbgy.supabase.co";
+const SB_KEY = "sb_publishable_F0ZWUwUDhR21-rhKWjBnBg_Fouhtc_n";
+const $ = (id) => document.getElementById(id);
+const room = (new URLSearchParams(location.search).get("r") || "").toUpperCase();
+const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+
+let langs = [], lang = store.get("watchLang") || "", fs = +(store.get("watchFs") || 22), ttsOn = false;
+const segs = new Map();                 // id → { n, text:{}, fin:{} }
+const spoken = new Set();
+
+/* 화면 설정 */
+document.documentElement.style.setProperty("--fs", fs + "px");
+if (store.get("watchTheme") === "light") document.documentElement.dataset.theme = "light";
+$("smaller").onclick = () => { fs = Math.max(14, fs - 2); document.documentElement.style.setProperty("--fs", fs + "px"); store.set("watchFs", fs); };
+$("bigger").onclick = () => { fs = Math.min(44, fs + 2); document.documentElement.style.setProperty("--fs", fs + "px"); store.set("watchFs", fs); };
+$("theme").onclick = () => {
+  const light = document.documentElement.dataset.theme !== "light";
+  document.documentElement.dataset.theme = light ? "light" : ""; store.set("watchTheme", light ? "light" : "");
+};
+$("tts").onclick = () => {
+  ttsOn = !ttsOn; $("tts").classList.toggle("on", ttsOn);
+  if (ttsOn && "speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(""));   // 아이폰은 첫 탭에서 소리 권한이 열림
+  else if ("speechSynthesis" in window) speechSynthesis.cancel();
+};
+if (!("speechSynthesis" in window)) $("tts").hidden = true;
+
+/* 화면 꺼짐 방지 */
+let wake = null;
+const keepOn = () => { if (navigator.wakeLock && document.visibilityState === "visible") navigator.wakeLock.request("screen").then((w) => (wake = w)).catch(() => {}); };
+document.addEventListener("visibilitychange", keepOn); keepOn();
+
+function renderLangs() {
+  if (!langs.length) return;
+  if (!langs.some((l) => l.code === lang)) {
+    const nav = (navigator.language || "ko").slice(0, 2);
+    lang = (langs.find((l) => l.code.slice(0, 2) === nav) || langs[0]).code;
+  }
+  $("langs").innerHTML = langs.map((l) => `<button data-c="${l.code}" class="${l.code === lang ? "sel" : ""}">${l.name}</button>`).join("");
+  $("langs").querySelectorAll("button").forEach((b) => (b.onclick = () => { lang = b.dataset.c; store.set("watchLang", lang); renderLangs(); renderLog(true); }));
+}
+
+function renderLog(jump) {
+  const box = $("log");
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 200;
+  const list = [...segs.values()].filter((s) => s.text[lang]).sort((a, b) => a.n - b.n).slice(-60);
+  $("empty").hidden = list.length > 0;
+  box.querySelectorAll(".line").forEach((e) => e.remove());
+  for (const s of list) {
+    const p = document.createElement("p");
+    p.className = "line" + (s.fin[lang] ? "" : " interim");
+    p.textContent = s.text[lang];
+    box.appendChild(p);
+  }
+  if (jump || nearBottom) box.scrollTop = box.scrollHeight;
+}
+
+function speak(s) {
+  if (!ttsOn || !("speechSynthesis" in window) || spoken.has(s.n + lang)) return;
+  spoken.add(s.n + lang);
+  const u = new SpeechSynthesisUtterance(s.text[lang]);
+  const l = langs.find((x) => x.code === lang);
+  u.lang = (l && l.loc) || lang;
+  speechSynthesis.speak(u);
+}
+
+/* 연결 */
+if (!room) {
+  $("state").textContent = "방 코드가 없습니다. 발표 화면의 QR을 다시 찍어 주세요.";
+} else {
+  const sb = supabase.createClient(SB_URL, SB_KEY);
+  const ch = sb.channel("live-" + room, { config: { broadcast: { self: false }, presence: { key: "v" + Math.random().toString(36).slice(2, 8) } } });
+  let lastHost = 0;
+  ch.on("broadcast", { event: "hello" }, ({ payload }) => {
+    lastHost = Date.now();
+    if (JSON.stringify(payload.langs) !== JSON.stringify(langs)) { langs = payload.langs || []; renderLangs(); renderLog(); }
+    setState(true);
+  });
+  ch.on("broadcast", { event: "seg" }, ({ payload }) => {
+    lastHost = Date.now(); setState(true);
+    for (const it of payload.items || []) {
+      const was = segs.get(it.id);
+      segs.set(it.id, { n: it.n, text: it.text || {}, fin: it.fin || {} });
+      const s = segs.get(it.id);
+      if (s.fin[lang] && s.text[lang] && !(was && was.fin[lang])) speak(s);
+    }
+    while (segs.size > 120) segs.delete(segs.keys().next().value);
+    renderLog();
+  });
+  ch.subscribe((st) => {
+    if (st === "SUBSCRIBED") {
+      ch.track({ role: "viewer" });
+      ch.send({ type: "broadcast", event: "join", payload: {} });
+      $("state").textContent = "발표자 연결을 기다리는 중… (방 " + room + ")";
+    } else if (st === "CHANNEL_ERROR" || st === "TIMED_OUT" || st === "CLOSED") {
+      setState(false, "연결이 끊겼습니다. 잠시 후 자동으로 다시 연결합니다.");
+    }
+  });
+  function setState(on, msg) {
+    $("dot").classList.toggle("on", on);
+    $("state").textContent = msg || (on ? "연결됨 · 방 " + room : "발표자 연결을 기다리는 중…");
+  }
+  setInterval(() => { if (lastHost && Date.now() - lastHost > 15000) setState(false, "발표자 화면 신호가 없습니다. 잠시 기다려 주세요."); }, 5000);
+}
+</script>
+</body>
+</html>

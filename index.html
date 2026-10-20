@@ -81,6 +81,15 @@
   .langGrid small { color: #e3a33b; }
   .langPanel .note { font-size: 13px; color: #9aa3b2; }
   .langPanel .note.warn { color: #e3a33b; }
+  .sharePanel { display: flex; gap: 18px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  .qrBox { background: #fff; padding: 8px; border-radius: 8px; line-height: 0; }
+  .shareInfo { display: flex; flex-direction: column; gap: 6px; font-size: 14px; min-width: 240px; flex: 1; }
+  .shareInfo a { color: #7fb2ff; word-break: break-all; }
+  .shareRow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .stageQr { position: absolute; right: 12px; top: 12px; z-index: 4; background: #fff; padding: 6px 6px 2px; border-radius: 8px; text-align: center;
+    color: #111; font: 700 11px "Malgun Gothic", system-ui, sans-serif; line-height: 1.2; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+  .stageQr span { display: block; padding: 2px 0 3px; }
+  .stage:fullscreen .stageQr { right: 1.2vw; top: 1.2vw; }
   .row.speaking .tag { outline: 2px solid #fff; outline-offset: 1px; }
   .row[data-lang=ko] .tag { background: #ffd24d; }
   .row[data-lang=en] .tag { background: #7fb2ff; }
@@ -159,6 +168,24 @@
   <button id="capture" title="PPT 화면을 받아와서 위에 줄여 보여주고, 아래에 자막">🖥 화면 합성 (PPT 안 가림)</button>
   <button id="tv" title="자막만 크게 보이는 새 창. 보조 TV로 옮겨서 사용">📺 자막 전용 화면 (TV용)</button>
   <button id="full">⛶ 전체화면</button>
+  <button id="share" title="청중이 QR을 찍으면 자기 휴대폰에서 원하는 언어로 자막을 봅니다">📱 청중 휴대폰 자막 (QR)</button>
+</section>
+
+<section class="sharePanel" id="sharePanel" hidden>
+  <div class="qrBox" id="qrBox"></div>
+  <div class="shareInfo">
+    <b>청중 휴대폰 자막</b>
+    <div>휴대폰 카메라로 QR을 찍으면 각자 원하는 언어로 자막을 보고, 음성으로도 들을 수 있습니다.</div>
+    <div class="shareUrl">방 코드 <b id="roomCode"></b> · <a id="shareLink" target="_blank" rel="noopener"></a></div>
+    <div class="shareRow">
+      <label class="chk"><input type="checkbox" id="qrOnStage">발표 화면 구석에 QR 띄우기</label>
+      <span id="viewerCount" class="note"></span>
+    </div>
+    <div class="shareRow">
+      <button id="newRoom">새 방 코드</button>
+      <button id="stopShare">공유 끄기</button>
+    </div>
+  </div>
 </section>
 
 <section class="azure" id="azurePanel" hidden>
@@ -205,6 +232,7 @@
     <video id="cap" autoplay muted playsinline hidden></video>
     <div class="subbar" id="subbar"></div>
     <div class="toast" id="toast" hidden></div>
+    <div class="stageQr" id="stageQr" hidden><div id="stageQrImg"></div><span>휴대폰 자막</span></div>
   </div>
 
   <aside class="help">
@@ -221,6 +249,9 @@
       <li>발표 중 다른 언어 화자가 나오면 <b>Ctrl+F1</b>: 말하는 언어 <b>자동 ↔ 직전 언어</b> 전환. 화면 위에 잠깐 표시됩니다.</li>
     </ol>
     <p>PPT 프로그램을 켤 필요가 없습니다. 애니메이션·동영상은 빠지고, 글꼴이 조금 다를 수 있습니다. 모양이 꼭 같아야 하면 PDF로 저장해서 넣으세요.</p>
+
+    <h3>📱 청중 휴대폰 자막</h3>
+    <p><b>📱 청중 휴대폰 자막 (QR)</b>을 누르면 QR이 나옵니다. 청중이 찍으면 각자 휴대폰에서 원하는 언어로 자막을 보고, <b>🔊 소리로 듣기</b>로 음성으로도 들을 수 있습니다. "발표 화면 구석에 QR 띄우기"를 켜면 슬라이드 오른쪽 위에 QR이 함께 나옵니다. 방 코드는 기억되어 다음 행사에도 같은 QR을 쓸 수 있고, 바꾸려면 <b>새 방 코드</b>.</p>
 
     <h3>🖥 화면 합성</h3>
     <ol>
@@ -422,6 +453,77 @@ function setText(id, lang, text, isFinal, req) {
   if (isFinal) { s.fin[lang] = true; if (before && before !== text) s.fixedAt[lang] = Date.now(); }
   lastActivity = Date.now();
   render();
+  relayMark(id);
+}
+
+/* ───── 청중 휴대폰 자막: Supabase 실시간 방송(포털 프로젝트의 공개 키, DB 표는 사용 안 함) ───── */
+const SB_URL = "https://obqrlybfnrnuhscohbgy.supabase.co";
+const SB_KEY = "sb_publishable_F0ZWUwUDhR21-rhKWjBnBg_Fouhtc_n";
+const SB_JS = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+const WATCH_URL = new URL("watch.html", location.href.split("#")[0].split("?")[0].replace(/[^/]*$/, "")).href;
+let shareCh = null, shareRoom = "", shareOn = false;
+const relayDirty = new Set(), relayHist = new Map();   // 늦게 들어온 청중에게 보낼 최근 문장
+let relaySeq = 0;
+function newRoomCode() {
+  const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 5 }, () => A[Math.floor(Math.random() * A.length)]).join("");
+}
+function relayMark(id) { if (shareOn) relayDirty.add(id); }
+function langsPayload() { return selLangs.map((c) => ({ code: c, name: CAT[c].name, loc: CAT[c].loc })); }
+function snapshot(id) {
+  const s = segs[id]; if (!s) return null;
+  let h = relayHist.get(id);
+  if (!h) { h = { id, n: ++relaySeq }; relayHist.set(id, h); }
+  h.text = { ...s.text }; h.fin = { ...s.fin };
+  while (relayHist.size > 40) relayHist.delete(relayHist.keys().next().value);
+  return h;
+}
+setInterval(() => {                                  // 0.3초마다 바뀐 문장만 묶어서 방송
+  if (!shareCh || !relayDirty.size) return;
+  const items = [...relayDirty].map(snapshot).filter(Boolean);
+  relayDirty.clear();
+  shareCh.send({ type: "broadcast", event: "seg", payload: { items } });
+}, 300);
+setInterval(() => { if (shareCh) shareCh.send({ type: "broadcast", event: "hello", payload: { langs: langsPayload() } }); }, 5000);
+async function startShare(room) {
+  await loadLib(SB_JS, () => window.supabase && window.supabase.createClient);
+  if (shareCh) { try { await shareCh.unsubscribe(); } catch {} shareCh = null; }
+  window.__sb = window.__sb || window.supabase.createClient(SB_URL, SB_KEY);
+  shareRoom = room; shareOn = true;
+  try { localStorage.setItem("shareRoom", room); localStorage.setItem("shareOn", "1"); } catch {}
+  const ch = window.__sb.channel("live-" + room, { config: { broadcast: { self: false }, presence: { key: "host" } } });
+  ch.on("broadcast", { event: "join" }, () => {      // 새로 들어온 청중에게 언어 목록과 최근 문장 보내기
+    ch.send({ type: "broadcast", event: "hello", payload: { langs: langsPayload() } });
+    ch.send({ type: "broadcast", event: "seg", payload: { items: [...relayHist.values()] } });
+  });
+  ch.on("presence", { event: "sync" }, () => {
+    const n = Object.keys(ch.presenceState()).filter((k) => k !== "host").length;
+    $("viewerCount").textContent = `접속한 휴대폰 ${n}대`;
+  });
+  ch.subscribe((st) => {
+    if (st === "SUBSCRIBED") { ch.track({ role: "host" }); ch.send({ type: "broadcast", event: "hello", payload: { langs: langsPayload() } }); status("<b>청중 휴대폰 자막 켜짐</b> · QR을 찍으면 각자 휴대폰에서 자막을 볼 수 있습니다."); }
+    else if (st === "CHANNEL_ERROR" || st === "TIMED_OUT") status("<b>청중 공유 연결에 실패했습니다.</b> 인터넷을 확인하고 다시 눌러 주세요.", true);
+  });
+  shareCh = ch;
+  const link = WATCH_URL + "?r=" + room;
+  $("roomCode").textContent = room;
+  $("shareLink").textContent = link; $("shareLink").href = link;
+  await drawQr($("qrBox"), link, 168);
+  await drawQr($("stageQrImg"), link, 110);
+  $("share").textContent = "📱 청중 자막 켜짐 (QR)"; $("share").classList.add("on");
+}
+async function drawQr(el, text, size) {
+  await loadLib("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", () => window.QRCode);
+  el.innerHTML = "";
+  new QRCode(el, { text, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
+}
+function stopShare() {
+  if (shareCh) { try { shareCh.unsubscribe(); } catch {} }
+  shareCh = null; shareOn = false;
+  try { localStorage.setItem("shareOn", "0"); } catch {}
+  $("sharePanel").hidden = true; $("stageQr").hidden = true; $("qrOnStage").checked = false;
+  $("share").textContent = "📱 청중 휴대폰 자막 (QR)"; $("share").classList.remove("on");
+  status("청중 휴대폰 자막을 껐습니다.");
 }
 
 /* ───── 자막 띠 그리기: 메인 화면 + 따로 띄운 창들 ───── */
@@ -827,11 +929,24 @@ function setLangs(codes) {
   $("srcLang").value = h.includes(prev) || prev === "auto" ? prev : "auto";
   renderLangPanel();
   rebuildAll();
+  if (typeof shareCh !== "undefined" && shareCh) shareCh.send({ type: "broadcast", event: "hello", payload: { langs: langsPayload() } });
   if (running && engineRunning === "azure") { stopAzure(); setTimeout(startAzure, 300); }
 }
 $("langBtn").onclick = () => { $("langPanel").hidden = !$("langPanel").hidden; };
 document.querySelectorAll("[data-preset]").forEach((b) => (b.onclick = () => setLangs(b.dataset.preset.split(","))));
 setLangs(selLangs);
+$("share").onclick = async () => {
+  if (!$("sharePanel").hidden) { $("sharePanel").hidden = true; return; }
+  $("sharePanel").hidden = false;
+  if (!shareOn) {
+    let room = ""; try { room = localStorage.getItem("shareRoom") || ""; } catch {}
+    await startShare(room || newRoomCode());
+  }
+};
+$("newRoom").onclick = () => startShare(newRoomCode());
+$("stopShare").onclick = stopShare;
+$("qrOnStage").onchange = () => { $("stageQr").hidden = !$("qrOnStage").checked; };
+try { if (localStorage.getItem("shareOn") === "1" && localStorage.getItem("shareRoom")) startShare(localStorage.getItem("shareRoom")); } catch {}
 function applySize() {
   const v = $("size").value;
   const docs = new Set([document, ...[...extraBars].map((b) => b.ownerDocument)]);
