@@ -8,6 +8,7 @@
   :root { --bg: #0e1116; --panel: #171b22; --line: #2a303a; --text: #f2f4f7; --dim: #9aa3b2; --accent: #ffd24d; --fs: 22px; }
   :root[data-theme="light"] { --bg: #f6f7f9; --panel: #fff; --line: #dde1e7; --text: #141820; --dim: #5d6675; }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }        /* 숨김 표시가 display 설정에 덮이지 않게 */
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif; }
   body { display: flex; flex-direction: column; }
   header { position: sticky; top: 0; z-index: 2; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
@@ -16,8 +17,8 @@
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #e5484d; flex: none; }
   .dot.on { background: #3fb950; }
   #state { font-size: 13px; color: var(--dim); flex: 1; }
-  .langs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
-  .langs button { flex: none; border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 999px; padding: 6px 12px; font-size: 14px; }
+  .langs { display: flex; flex-wrap: wrap; gap: 6px; }          /* 언어가 많아도 여러 줄로 감겨서 전부 보이게 */
+  .langs button { flex: none; border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 999px; padding: 5px 11px; font-size: 14px; white-space: nowrap; }
   .langs button.sel { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 700; }
   .tools { display: flex; gap: 6px; align-items: center; }
   .tools button { border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 8px; padding: 6px 10px; font-size: 14px; }
@@ -103,7 +104,8 @@ function renderLangs() {
     const nav = (navigator.language || "ko").slice(0, 2);
     lang = (langs.find((l) => l.code.slice(0, 2) === nav) || langs[0]).code;
   }
-  $("langs").innerHTML = langs.map((l) => `<button data-c="${l.code}" class="${l.code === lang ? "sel" : ""}">${l.name}</button>`).join("");
+  const label = (l) => l.name.split(" ").filter((w) => !/[가-힣]/.test(w)).join(" ") || l.name;   // 청중이 알아보게 그 나라 말로만
+  $("langs").innerHTML = langs.map((l) => `<button data-c="${l.code}" class="${l.code === lang ? "sel" : ""}">${label(l)}</button>`).join("");
   $("langs").querySelectorAll("button").forEach((b) => (b.onclick = () => { lang = b.dataset.c; store.set("watchLang", lang); renderLangs(); renderLog(true); if (window.__showPin) window.__showPin(); }));
 }
 
