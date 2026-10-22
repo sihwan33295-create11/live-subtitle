@@ -40,14 +40,17 @@
   /* 무대: 발표 화면 미리보기 */
   .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px;
     overflow: hidden; border: 1px solid var(--line); display: flex; flex-direction: column; }
-  .stage:fullscreen { border-radius: 0; border: 0; --mul: 1.7; }
+  .stage { --mul: var(--rowsK, 1); }
+  .stage:fullscreen { border-radius: 0; border: 0; --mul: calc(1.7 * var(--rowsK, 1)); }
+  .stage.many .row { --lines: 1; }                          /* 언어가 4개 이상이면 줄당 1줄로 슬라이드 자리 확보 */
   .stage video { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #000; }
   .deck { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; background: #000; cursor: pointer; }
   .deck .deckBody { position: relative; overflow: hidden; }
   .deck canvas { display: block; }
   .pptxHost { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: #fff; }
   .stage.deckmode .row { --lines: 1; }                       /* 발표자료 모드: 자막은 언어별 한 줄로 줄여 슬라이드를 크게 */
-  .stage.deckmode:fullscreen { --mul: 1.3; }
+  .stage.deckmode { --mul: var(--rowsK, 1); }
+  .stage.deckmode:fullscreen { --mul: calc(1.3 * var(--rowsK, 1)); }   /* 언어가 많으면 자막을 조금 줄여 슬라이드 자리 확보 */
   .pptx-preview-wrapper-next, .pptx-preview-wrapper-pre, .pptx-preview-wrapper-pagination { display: none !important; }
   .pptx-preview-wrapper { background: transparent !important; overflow: hidden !important; }
   .deck .pageNo { position: absolute; right: 10px; top: 8px; color: #fff; background: rgba(0,0,0,.45); border-radius: 6px; padding: 2px 8px; font-size: 13px; opacity: .7; }
@@ -125,10 +128,11 @@
 
   /* 자막 전용 화면(TV) */
   body.tv { background: #000; margin: 0; overflow: hidden; height: 100vh; }
-  body.tv .subbar { height: 100vh; justify-content: center; background: #000; padding: 4vh 4vw; gap: 2.5vh;
-    font-size: calc(var(--fsn) * .16vw); }
-  body.tv .row { --lines: 3; }
-  body.tv .row[data-lang=ko] { --lines: 2; }
+  body.tv .subbar { height: 100vh; justify-content: center; background: #000; padding: 4vh 4vw; gap: 2.5vh; overflow: hidden;
+    /* 언어 줄 수에 맞춰 화면 높이 안에 다 들어가도록 글자 크기를 자동으로 줄임 */
+    font-size: min(calc(var(--fsn) * .16vw), calc((92vh - (var(--tvRows, 3) - 1) * 2.5vh) / (var(--tvRows, 3) * var(--tvRowEm, 4.5)))); }
+  body.tv .row { --lines: var(--tvLines, 3); }
+  body.tv .row[data-lang=ko] { --lines: var(--tvKoLines, 2); }
   body.tv .subbar.single .row { --lines: 5; font-size: 1.15em; }
   .tvbar { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
     color: #9aa3b2; font: 14px "Malgun Gothic", system-ui, sans-serif; opacity: 0; transition: opacity .3s; z-index: 2; }
@@ -724,6 +728,16 @@ function enabledLangs() {
 function buildBar(bar) {
   const langs = bar.dataset.only ? [bar.dataset.only] : enabledLangs();
   bar.classList.toggle("single", langs.length === 1);
+  if (bar.ownerDocument !== document) {              // TV 창: 언어가 많으면 줄 수를 줄이고 글자도 화면에 맞춤
+    const n = langs.length, lines = n === 1 ? 5 : n <= 3 ? 3 : 2;
+    bar.style.setProperty("--tvRows", n);
+    bar.style.setProperty("--tvLines", lines);
+    bar.style.setProperty("--tvKoLines", Math.max(1, lines - 1));
+    bar.style.setProperty("--tvRowEm", (n === 1 ? 5 * 1.38 * 1.15 + .3 : lines * 1.38 + .35).toFixed(2));
+  }
+  if (bar.id === "subbar" && bar.ownerDocument === document)   // 발표 화면: 4개 이상이면 줄당 글자를 조금씩 줄임
+    { $("stage").style.setProperty("--rowsK", langs.length <= 3 ? 1 : Math.max(0.72, 1 - 0.08 * (langs.length - 3)).toFixed(2));
+      $("stage").classList.toggle("many", langs.length >= 4); }
   bar.innerHTML = "";
   for (const lang of langs) {
     const row = bar.ownerDocument.createElement("div");
@@ -794,11 +808,12 @@ const SCRIPT = [
 ];
 let timers = [];
 const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+let runSeq = 0;                                   // 시작할 때마다 바뀌는 번호(문장 번호가 다시 1부터 시작해도 겹치지 않게)
 function startDemo() {
-  let si = 0, n = 0;
+  let si = 0, n = 0; const run = ++runSeq;
   const sentence = () => {
     const steps = SCRIPT[si % SCRIPT.length];
-    const id = "demo" + n++;
+    const id = "demo" + run + "-" + n++;
     beginSeg(id);
     let k = 0, shown = "";
     const step = () => {
@@ -825,7 +840,8 @@ function startDemo() {
     step();
   };
   sentence();
-  status("<b>데모 재생 중</b> · 흐린 글씨가 말하는 중 번역, 문장이 끝나면 노랗게 번쩍이며 정정됩니다.");
+  status("<b>데모 재생 중</b> · 흐린 글씨가 말하는 중 번역, 문장이 끝나면 노랗게 번쩍이며 정정됩니다." +
+    (selLangs.some((l) => !["ko", "en", "ru"].includes(l)) ? " (데모 문장은 한국어·영어·러시아어만 들어 있어 다른 언어 줄은 비어 보입니다)" : ""));
 }
 function stopDemo() { timers.forEach(clearTimeout); timers = []; }
 
@@ -865,7 +881,7 @@ function startChrome() {
     status("<b>이 브라우저에는 내장 번역 기능이 없습니다.</b> 한국어 자막만 표시됩니다. (PC 크롬 최신 버전 또는 Azure 모드 사용)", true);
   }
 
-  let session = 0, reqNo = 0, pending = null;
+  let session = 0, reqNo = 0, pending = null; const run = ++runSeq;
   const lastSent = {};
   const translate = async (id, text, isFinal) => {
     const tr = await translatorsReady;
@@ -894,7 +910,7 @@ function startChrome() {
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
         const text = r[0].transcript.trim();
-        if (text) onKorean(`c${s}-${i}`, text, r.isFinal);
+        if (text) onKorean(`c${run}-${s}-${i}`, text, r.isFinal);
       }
     };
     rec.onerror = (e) => {
@@ -1036,7 +1052,8 @@ async function listMics(askPermission) {
       const st = await navigator.mediaDevices.getUserMedia({ audio: true });
       st.getTracks().forEach((t) => t.stop());
     }
-    const mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput" && d.deviceId !== "default" && d.deviceId !== "communications");
+    const mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput" && d.deviceId && d.deviceId !== "default" && d.deviceId !== "communications");
+    sel.dataset.labeled = mics.some((d) => d.label) ? "1" : "";   // 권한 전에는 이름이 비어 있음
     let saved = ""; try { saved = localStorage.getItem("micId") || ""; } catch {}
     const cur = sel.value || saved;
     sel.innerHTML = '<option value="">기본 마이크</option>' +
@@ -1044,8 +1061,8 @@ async function listMics(askPermission) {
     if (mics.some((d) => d.deviceId === cur)) sel.value = cur;
   } catch {}
 }
-$("mic").addEventListener("pointerdown", () => { if ($("mic").options.length <= 1) listMics(true); });
-$("mic").addEventListener("focus", () => { if ($("mic").options.length <= 1) listMics(true); });
+$("mic").addEventListener("pointerdown", () => { if (!$("mic").dataset.labeled) listMics(true); });   // 이름이 안 보이면 권한 요청
+$("mic").addEventListener("focus", () => { if (!$("mic").dataset.labeled) listMics(true); });
 $("mic").onchange = () => { try { localStorage.setItem("micId", $("mic").value); } catch {} };
 navigator.mediaDevices?.addEventListener?.("devicechange", () => listMics(false));   // 마이크를 꽂거나 빼면 목록 자동 갱신
 listMics(false);
