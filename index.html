@@ -13,7 +13,7 @@
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text);
-    font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Segoe UI", system-ui, sans-serif; font-size: 14px; }
+    font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", "Apple SD Gothic Neo", "Segoe UI", system-ui, sans-serif; font-size: 14px; }
   .top { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 12px 18px;
     background: var(--panel); border-bottom: 1px solid var(--line); }
   .top.second { padding-top: 8px; padding-bottom: 10px; background: #14171d; }
@@ -113,12 +113,13 @@
   .row[data-lang=ko] .tag { background: #ffd24d; }
   .row[data-lang=en] .tag { background: #7fb2ff; }
   .row[data-lang=ru] .tag { background: #8ee0b0; }
-  .txt { line-height: 1.38; height: calc(1.38em * var(--lines, 2)); overflow: hidden; display: flex; align-items: flex-end; }
+  .txt { line-height: var(--lh, 1.45); height: calc(1em * var(--lh, 1.45) * var(--lines, 2)); overflow: hidden; display: flex; align-items: flex-end; }
   .row[data-lang=ko] { --lines: 1; }
   .row[data-lang=ko] .txt { font-size: .78em; color: #d9d9d9; }   /* 글자만 작게, KO 표시 상자는 다른 언어와 같은 크기 */
-  .inner { width: 100%; color: #fff; font-weight: 600; word-break: keep-all; overflow-wrap: anywhere; }
+  .inner { width: 100%; color: #fff; font-weight: 600; word-break: keep-all; overflow-wrap: anywhere;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, .9), 0 0 6px rgba(0, 0, 0, .5); }   /* 밝은 배경 위에서도 또렷하게 */
   .prev { color: rgba(255, 255, 255, .5); font-weight: 500; }
-  .cur.interim { color: rgba(255, 255, 255, .72); font-style: italic; }
+  .cur.interim { color: rgba(255, 255, 255, .72); }          /* 기울임은 중국어·태국어 등에서 읽기 어려워 흐리게만 */
   .cur.fixed { animation: fixed 1s ease-out; }
   @keyframes fixed { 0% { background: rgba(255, 210, 77, .55); } 100% { background: transparent; } }
 
@@ -279,7 +280,7 @@
 
   <aside class="help">
     <h3>보는 법</h3>
-    <p class="legend"><span style="background:#333;color:#bbb;font-style:italic">흐린 기울임</span> 말하는 중 임시 번역<br>
+    <p class="legend"><span style="background:#333;color:#bbb">흐린 글씨</span> 말하는 중 임시 번역<br>
       <span style="background:#333;color:#fff;font-weight:600">진한 글씨</span> 문장 끝나고 확정된 번역<br>
       <span style="background:rgba(255,210,77,.55);color:#fff">노란 번쩍임</span> 임시 번역이 정정된 순간</p>
 
@@ -349,6 +350,40 @@ const CATALOG = [
   { code: "de", short: "독일", loc: "de-DE", tag: "DE", name: "독일어 Deutsch" },
 ];
 const CAT = Object.fromEntries(CATALOG.map((c) => [c.code, c]));
+/* 언어별 글꼴: 화면·자막용 무료 글꼴(프리텐다드, 구글 노토). 고른 언어 글꼴만 불러옴 */
+const SYS = '"Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif';
+const FONT = {
+  ko: { fam: '"Pretendard Variable", Pretendard', lh: 1.45 },
+  "zh-Hans": { fam: '"Noto Sans SC"', g: "Noto+Sans+SC", lh: 1.45 },
+  "zh-Hant": { fam: '"Noto Sans TC"', g: "Noto+Sans+TC", lh: 1.45 },
+  ja: { fam: '"Noto Sans JP"', g: "Noto+Sans+JP", lh: 1.45 },
+  th: { fam: '"Noto Sans Thai"', g: "Noto+Sans+Thai", lh: 1.7 },
+  km: { fam: '"Noto Sans Khmer"', g: "Noto+Sans+Khmer", lh: 1.75 },
+  lo: { fam: '"Noto Sans Lao"', g: "Noto+Sans+Lao", lh: 1.7 },
+  my: { fam: '"Noto Sans Myanmar"', g: "Noto+Sans+Myanmar", lh: 1.85 },
+  hi: { fam: '"Noto Sans Devanagari"', g: "Noto+Sans+Devanagari", lh: 1.65 },
+  ne: { fam: '"Noto Sans Devanagari"', g: "Noto+Sans+Devanagari", lh: 1.65 },
+  ar: { fam: '"Noto Sans Arabic"', g: "Noto+Sans+Arabic", lh: 1.7 },
+  vi: { fam: '"Noto Sans"', g: "Noto+Sans", lh: 1.55 },               // 성조 표시가 잘리지 않게 조금 넓게
+};
+const fontOf = (c) => FONT[c] || { fam: '"Noto Sans"', g: "Noto+Sans", lh: 1.45 };   // 영어·러시아어·몽골어 등 라틴·키릴
+const PRETENDARD = "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css";
+function fontLinks(codes) {
+  const fams = [...new Set(codes.map((c) => fontOf(c).g).filter(Boolean))];
+  const urls = [PRETENDARD];
+  if (fams.length) urls.push("https://fonts.googleapis.com/css2?" + fams.map((f) => `family=${f}:wght@500;700`).join("&") + "&display=swap");
+  return urls;
+}
+function ensureFonts(doc, codes) {                 // 필요한 글꼴 링크를 문서에 넣기(이미 있으면 그대로)
+  for (const href of fontLinks(codes)) {
+    if ([...doc.querySelectorAll("link[data-font]")].some((l) => l.href === href)) continue;
+    const l = doc.createElement("link"); l.rel = "stylesheet"; l.href = href; l.dataset.font = "1";
+    doc.head.appendChild(l);
+  }
+}
+function fontCss(codes) {
+  return codes.map((c) => { const f = fontOf(c); return `.row[data-lang="${c}"] .txt,.ql[data-l="${c}"]{font-family:${f.fam},${SYS};--lh:${f.lh}}`; }).join("\n");
+}
 const koName = (c) => (CAT[c] ? CAT[c].name.split(" ").filter((w) => /[가-힣]/.test(w)).join(" ") : c);   // "중국어 번체"처럼 한글 부분만
 const TAG_COLORS = ["#f5a3c7", "#c3a6ff", "#ffb27f", "#7fe0e0", "#d6e07f", "#ff9a9a", "#9ad0ff"];
 let selLangs = ["ko", "en", "ru"];
@@ -676,7 +711,7 @@ function renderQuestions() {
 function showQuestion(qid) {
   const q = questions.find((x) => x.qid === qid); if (!q) return;
   shownQ = qid;
-  const lines = selLangs.filter((l) => q.text[l]).map((l) => `<div class="ql"><i>${CAT[l].tag}</i><span>${q.text[l].replace(/</g, "&lt;")}</span></div>`).join("") ||
+  const lines = selLangs.filter((l) => q.text[l]).map((l) => `<div class="ql" data-l="${l}" dir="auto"><i>${CAT[l].tag}</i><span>${q.text[l].replace(/</g, "&lt;")}</span></div>`).join("") ||
     `<div class="ql"><span>${q.orig.replace(/</g, "&lt;")}</span></div>`;
   $("qBanner").innerHTML = `<div class="qh">💬 질문${q.name ? " · " + q.name.replace(/</g, "&lt;") : ""}</div>${lines}`;
   $("qBanner").hidden = false;
@@ -733,7 +768,8 @@ function buildBar(bar) {
     bar.style.setProperty("--tvRows", n);
     bar.style.setProperty("--tvLines", lines);
     bar.style.setProperty("--tvKoLines", Math.max(1, lines - 1));
-    bar.style.setProperty("--tvRowEm", (n === 1 ? 5 * 1.38 * 1.15 + .3 : lines * 1.38 + .35).toFixed(2));
+    const lh = Math.max(...langs.map((c) => fontOf(c).lh));   // 태국어 등 줄 간격이 넓은 언어 기준
+    bar.style.setProperty("--tvRowEm", (n === 1 ? 5 * lh * 1.15 + .3 : lines * lh + .35).toFixed(2));
   }
   if (bar.id === "subbar" && bar.ownerDocument === document)   // 발표 화면: 4개 이상이면 줄당 글자를 조금씩 줄임
     { $("stage").style.setProperty("--rowsK", langs.length <= 3 ? 1 : Math.max(0.72, 1 - 0.08 * (langs.length - 3)).toFixed(2));
@@ -742,7 +778,7 @@ function buildBar(bar) {
   for (const lang of langs) {
     const row = bar.ownerDocument.createElement("div");
     row.className = "row"; row.dataset.lang = lang;
-    row.innerHTML = `<div class="tag" style="${tagColor(lang) ? "background:" + tagColor(lang) : ""}">${LANGS[lang] || lang}</div><div class="txt"><div class="inner"><span class="prev"></span> <span class="cur"></span></div></div>`;
+    row.innerHTML = `<div class="tag" style="${tagColor(lang) ? "background:" + tagColor(lang) : ""}">${LANGS[lang] || lang}</div><div class="txt"><div class="inner" dir="auto"><span class="prev"></span> <span class="cur"></span></div></div>`;
     bar.appendChild(row);
   }
   renderBar(bar);
@@ -1132,6 +1168,7 @@ function setLangs(codes) {
   $("srcLang").value = h.includes(prev) || prev === "auto" ? prev : "auto";
   renderLangPanel();
   rebuildAll();
+  if (window.__styleReady) applyLangStyle();
   if (typeof shareCh !== "undefined" && shareCh) shareCh.send({ type: "broadcast", event: "hello", payload: { langs: langsPayload() } });
   if (running && engineRunning === "azure") { stopAzure(); setTimeout(startAzure, 300); }
 }
@@ -1157,7 +1194,7 @@ function applySize() {
 }
 $("size").oninput = () => { applySize(); try { localStorage.setItem("fsize", $("size").value); } catch {} };
 /* 자막 설정: 배경 진하기 + 언어별 크기·색 */
-let langStyle = {};
+let langStyle = {}; window.__styleReady = true;
 try { langStyle = JSON.parse(localStorage.getItem("langStyle") || "{}"); const f = localStorage.getItem("fsize"); if (f) $("size").value = f;
   const a = localStorage.getItem("bgAlpha"); if (a) $("bgAlpha").value = a; } catch {}
 function styleDocs() { return new Set([document, ...[...extraBars].map((b) => b.ownerDocument)]); }
@@ -1169,9 +1206,10 @@ function applyLangStyle() {
   }).join("\n");
   const alpha = (+$("bgAlpha").value / 100).toFixed(2);
   for (const d of styleDocs()) {
+    ensureFonts(d, selLangs);
     let el = d.getElementById("langStyle");
     if (!el) { el = d.createElement("style"); el.id = "langStyle"; d.head.appendChild(el); }
-    el.textContent = css;
+    el.textContent = fontCss(selLangs) + "\n" + css;
     d.documentElement.style.setProperty("--subA", alpha);
   }
   $("sizeVal").textContent = $("size").value + "px"; $("bgVal").textContent = $("bgAlpha").value + "%";
