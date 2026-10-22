@@ -116,8 +116,6 @@
   .row[data-lang=en] .tag { background: #7fb2ff; }
   .row[data-lang=ru] .tag { background: #8ee0b0; }
   .txt { line-height: var(--lh, 1.45); height: calc(1em * var(--lh, 1.45) * var(--lines, 2)); overflow: hidden; display: flex; align-items: flex-end; }
-  .row[data-lang=ko] { --lines: 1; }
-  .row[data-lang=ko] .txt { font-size: .78em; color: #d9d9d9; }   /* 글자만 작게, KO 표시 상자는 다른 언어와 같은 크기 */
   .inner { width: 100%; color: #fff; font-weight: 600; word-break: keep-all; overflow-wrap: anywhere;
     text-shadow: 0 1px 2px rgba(0, 0, 0, .9), 0 0 6px rgba(0, 0, 0, .5); }   /* 밝은 배경 위에서도 또렷하게 */
   .prev { color: rgba(255, 255, 255, .5); font-weight: 500; }
@@ -135,7 +133,6 @@
     /* 언어 줄 수에 맞춰 화면 높이 안에 다 들어가도록 글자 크기를 자동으로 줄임 */
     font-size: min(calc(var(--fsn) * .16vw), calc((92vh - (var(--tvRows, 3) - 1) * 2.5vh) / (var(--tvRows, 3) * var(--tvRowEm, 4.5)))); }
   body.tv .row { --lines: var(--tvLines, 3); }
-  body.tv .row[data-lang=ko] { --lines: var(--tvKoLines, 2); }
   body.tv .subbar.single .row { --lines: 5; font-size: 1.15em; }
   .tvbar { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
     color: #9aa3b2; font: 14px "Malgun Gothic", system-ui, sans-serif; opacity: 0; transition: opacity .3s; z-index: 2; }
@@ -1202,7 +1199,7 @@ try { langStyle = JSON.parse(localStorage.getItem("langStyle") || "{}"); const f
 function styleDocs() { return new Set([document, ...[...extraBars].map((b) => b.ownerDocument)]); }
 function applyLangStyle() {
   const css = Object.entries(langStyle).map(([c, v]) => {
-    const base = c === "ko" ? .78 : 1, sc = (v.scale || 100) / 100, sel = `.row[data-lang="${c}"]`;
+    const base = 1, sc = (v.scale || 100) / 100, sel = `.row[data-lang="${c}"]`;
     return `${sel} .txt{font-size:${(base * sc).toFixed(3)}em}` +
       (v.color ? `${sel} .inner,${sel} .txt{color:${v.color}}${sel} .prev{color:${v.color};opacity:.55}${sel} .cur.interim{color:${v.color};opacity:.75}` : "");
   }).join("\n");
@@ -1221,7 +1218,7 @@ function renderStyleGrid() {
     const v = langStyle[c] || {};
     const opts = [70, 80, 90, 100, 115, 130, 150, 175].map((n) => `<option value="${n}" ${(v.scale || 100) === n ? "selected" : ""}>${n}%</option>`).join("");
     return `<label><span class="nm">${koName(c)}</span><select data-c="${c}" data-k="scale">${opts}</select>
-      <input type="color" data-c="${c}" data-k="color" value="${v.color || (c === "ko" ? "#d9d9d9" : "#ffffff")}" title="글자 색"></label>`;
+      <input type="color" data-c="${c}" data-k="color" value="${v.color || "#ffffff"}" title="글자 색"></label>`;
   }).join("");
   $("langStyleGrid").querySelectorAll("[data-c]").forEach((el) => (el.oninput = el.onchange = () => {
     const c = el.dataset.c; langStyle[c] = langStyle[c] || {};
