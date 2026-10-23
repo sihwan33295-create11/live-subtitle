@@ -230,6 +230,14 @@
   <div class="setRow"><b>전체 글자 크기</b><input type="range" id="size" min="14" max="48" value="26"><span id="sizeVal" class="note"></span></div>
   <div class="setRow"><b>자막 배경 진하기</b><input type="range" id="bgAlpha" min="0" max="100" value="82"><span id="bgVal" class="note"></span></div>
   <label class="chk"><input type="checkbox" id="autohide" checked>말 없으면 5초 뒤 자막 숨기기</label>
+  <div class="setRow"><label class="chk"><input type="checkbox" id="refineOn">AI 번역 다듬기</label>
+    <select id="refineModel" title="번역을 다시 확인할 AI 모델(EvoLink)">
+      <option value="gpt-6-luna">GPT-6 Luna (가장 저렴)</option>
+      <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite</option>
+      <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
+    </select>
+    <input type="password" id="refineKey" placeholder="EvoLink 키" style="width:170px" autocomplete="off">
+    <span class="note" id="refineInfo">문장이 끝나면 AI가 번역을 다시 확인해, 뜻이 틀린 언어만 1초쯤 뒤 고쳐 끼웁니다(노랗게 깜빡임).</span></div>
   <div><b>언어별 글자</b> <span class="note">언어마다 크기와 색을 따로 정합니다. TV용 화면에도 같이 적용됩니다.</span></div>
   <div class="langStyleGrid" id="langStyleGrid"></div>
   <div><button id="styleReset">모양 기본값으로</button></div>
@@ -551,7 +559,79 @@ function setText(id, lang, text, isFinal, req) {
   lastActivity = Date.now();
   render();
   relayMark(id);
-  if (isFinal && text) logFinal(id, lang, text);
+  if (isFinal && text) { logFinal(id, lang, text); queueRefine(id); }
+}
+/* ───── AI 번역 다듬기: 먼저 띄우고 나중에 다듬기, 뜻이 크게 달라질 때만 교체 ───── */
+const REFINE_URL = "https://direct.evolink.ai/v1/chat/completions";
+const refineTimers = new Map(), refineDone = new Set();
+const refineStat = { checked: 0, replaced: 0, failed: 0, ms: 0 };
+let refineBusy = 0, lastRefined = "";
+function queueRefine(id) {                        // 같은 문장의 번역이 다 들어오도록 0.6초 기다렸다 한 번만
+  if (!$("refineOn").checked || refineDone.has(id)) return;
+  clearTimeout(refineTimers.get(id));
+  refineTimers.set(id, setTimeout(() => { refineTimers.delete(id); refine(id); }, 600));
+}
+const REFINE_SYSTEM = `You check machine translations of live conference subtitles.
+For each target language, decide whether the machine translation conveys the same meaning as the source and uses the glossary terms correctly.
+Only mark a translation as wrong when the meaning is clearly different, something important is missing or added, or a glossary term is wrong. Do not change translations just for style or word choice.
+If wrong, give a corrected translation: natural, concise subtitle style, same meaning as the source, using the glossary terms exactly.
+Reply in JSON only: {"results":[{"lang":"<code>","ok":true|false,"fixed":"<corrected translation or empty>"}]}`;
+async function callRefineLLM(model, user) {      // 상용화 버전에서는 서버(/api/refine)로 바뀜
+  const key = $("refineKey").value.trim();
+  if (!key) throw new Error("EvoLink 키가 없습니다");
+  const body = { model, messages: [{ role: "system", content: REFINE_SYSTEM }, { role: "user", content: user }], response_format: { type: "json_object" }, max_tokens: 800 };
+  if (model.startsWith("gpt-")) body.reasoning_effort = "none";   // 생각 단계를 끄면 훨씬 빠름
+  const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch(REFINE_URL, { method: "POST", signal: ctrl.signal, headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error("다듬기 실패 " + r.status);
+    const j = await r.json();
+    return j.choices?.[0]?.message?.content || "";
+  } finally { clearTimeout(to); }
+}
+async function refine(id) {
+  const row = trIndex.get(id); if (!row || refineBusy > 3) return;
+  const said = row.said || "ko", src = row.text[said];
+  const targets = selLangs.filter((l) => l !== said && row.text[l]);
+  if (!src || src.length < 2 || !targets.length) return;
+  refineDone.add(id); refineBusy++;
+  const name = (c) => (CAT[c] ? CAT[c].name : c);
+  const terms = allTerms().filter((t) => [t[said], t.ko, t.en].some((w) => w && src.includes(w))).slice(0, 30)
+    .map((t) => [said, ...targets].map((l) => t[l] ? `${l}: ${t[l]}` : "").filter(Boolean).join(" | "));
+  const user = (lastRefined ? `Previous sentence (context only): ${lastRefined}\n` : "") +
+    `Source (${said}, ${name(said)}): ${src}\n` +
+    (terms.length ? `Glossary:\n${terms.join("\n")}\n` : "") +
+    `Machine translations:\n${targets.map((l) => `${l} (${name(l)}): ${row.text[l]}`).join("\n")}`;
+  lastRefined = src;
+  const t0 = Date.now();
+  try {
+    const out = JSON.parse((await callRefineLLM($("refineModel").value, user)).replace(/^```(json)?|```$/g, "").trim());
+    refineStat.checked++; refineStat.ms += Date.now() - t0;
+    let changed = false;
+    for (const r of out.results || []) {
+      if (r.ok !== false || !targets.includes(r.lang) || !String(r.fixed || "").trim()) continue;
+      const fixed = applyGlossary(r.lang, String(r.fixed).trim(), said);
+      if (fixed === row.text[r.lang]) continue;
+      refineStat.replaced++; changed = true;
+      logFinal(id, r.lang, fixed);                   // 자막 기록은 항상 고친 문장으로
+      if (id === curId && segs[id]) {                // 지금 보이는 맨 아래 줄일 때만 화면에서 교체
+        segs[id].text[r.lang] = fixed; segs[id].fixedAt[r.lang] = Date.now();
+      }
+    }
+    if (changed) { render(); relayMark(id); }
+  } catch (e) { refineStat.failed++; if (refineStat.failed <= 3) console.warn("번역 다듬기:", e.message); }
+  finally { refineBusy--; showRefineInfo(); }
+}
+function showRefineInfo() {
+  const n = refineStat.checked;
+  $("refineInfo").textContent = n || refineStat.failed
+    ? `확인 ${n}문장 · 교체 ${refineStat.replaced}곳 · 평균 ${n ? (refineStat.ms / n / 1000).toFixed(1) : "-"}초` + (refineStat.failed ? ` · 실패 ${refineStat.failed}` : "")
+    : "문장이 끝나면 AI가 번역을 다시 확인해, 뜻이 틀린 언어만 1초쯤 뒤 고쳐 끼웁니다(노랗게 깜빡임).";
+}
+for (const k of ["refineOn", "refineModel", "refineKey"]) {
+  const el = $(k), v = (() => { try { return localStorage.getItem(k); } catch { return null; } })();
+  if (v !== null) { if (el.type === "checkbox") el.checked = v === "1"; else el.value = v; }
+  el.addEventListener("change", () => { try { localStorage.setItem(k, el.type === "checkbox" ? (el.checked ? "1" : "0") : el.value.trim()); } catch {} });
 }
 /* 자막 기록: 확정된 문장을 모아 두었다가 TXT·엑셀(CSV)로 내려받기. 새로고침해도 남도록 브라우저에 저장 */
 let transcript = [];
@@ -1435,7 +1515,7 @@ if (matchMedia("(pointer: coarse)").matches && innerWidth < 900) {
   const h = new URLSearchParams(location.hash.slice(1));
   const k = (h.get("k") || "").trim();
   if (!k) return;
-  try { localStorage.setItem("azKey", k); localStorage.setItem("azRegion", (h.get("r") || "koreacentral").trim()); if (h.get("t")) localStorage.setItem("trKey", h.get("t").trim()); } catch {}
+  try { localStorage.setItem("azKey", k); localStorage.setItem("azRegion", (h.get("r") || "koreacentral").trim()); if (h.get("t")) localStorage.setItem("trKey", h.get("t").trim()); if (h.get("e")) { localStorage.setItem("refineKey", h.get("e").trim()); localStorage.setItem("refineOn", "1"); $("refineKey").value = h.get("e").trim(); $("refineOn").checked = true; } } catch {}
   history.replaceState(null, "", location.pathname + location.search);
   status("<b>Azure 키가 이 기기에 저장되었습니다.</b> 다음부터는 그냥 사이트 주소로 들어와도 됩니다.");
 })();
