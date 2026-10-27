@@ -230,6 +230,7 @@
   <div class="setRow"><b>전체 글자 크기</b><input type="range" id="size" min="14" max="48" value="26"><span id="sizeVal" class="note"></span></div>
   <div class="setRow"><b>자막 배경 진하기</b><input type="range" id="bgAlpha" min="0" max="100" value="82"><span id="bgVal" class="note"></span></div>
   <label class="chk"><input type="checkbox" id="autohide" checked>말 없으면 5초 뒤 자막 숨기기</label>
+  <label class="chk" title="크롬의 잡음 제거·에코 제거·자동 음량을 끄고 마이크 소리를 그대로 받습니다. 행사장 믹서·핀마이크에 권장. 스피커 소리가 마이크로 되울리면 끄세요."><input type="checkbox" id="rawMic" checked>마이크 원음 그대로 받기 (Azure)</label>
   <div class="setRow"><label class="chk"><input type="checkbox" id="refineOn">AI 번역 다듬기</label>
     <select id="refineModel" title="번역을 다시 확인할 AI 모델(EvoLink)">
       <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite (빠름, 추천)</option>
@@ -628,7 +629,7 @@ function showRefineInfo() {
     ? `확인 ${n}문장 · 교체 ${refineStat.replaced}곳 · 평균 ${n ? (refineStat.ms / n / 1000).toFixed(1) : "-"}초` + (refineStat.failed ? ` · 실패 ${refineStat.failed}` : "")
     : "문장이 끝나면 AI가 번역을 다시 확인해, 뜻이 틀린 언어만 1초쯤 뒤 고쳐 끼웁니다(노랗게 깜빡임).";
 }
-for (const k of ["refineOn", "refineModel", "refineKey"]) {
+for (const k of ["refineOn", "refineModel", "refineKey", "rawMic"]) {
   const el = $(k), v = (() => { try { return localStorage.getItem(k); } catch { return null; } })();
   if (v !== null) { if (el.type === "checkbox") el.checked = v === "1"; else el.value = v; }
   el.addEventListener("change", () => { try { localStorage.setItem(k, el.type === "checkbox" ? (el.checked ? "1" : "0") : el.value.trim()); } catch {} });
@@ -1045,7 +1046,7 @@ function stopChrome() { if (rec) { rec.onend = null; try { rec.stop(); } catch {
 
 /* ───── ③ Azure 엔진: 음성인식 + 다국어 번역을 한 번에 ───── */
 const SDK_URL = "https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@1.51.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js";
-let azRec = null;
+let azRec = null, azStream = null;
 function loadScript(src) {
   return new Promise((ok, fail) => {
     if (window.SpeechSDK) return ok();
@@ -1084,7 +1085,12 @@ async function startAzure() {
   Object.keys(LANGS).filter((t) => src === "auto" || t !== src).forEach((t) => cfg.addTargetLanguage(t));
   cfg.setProperty(SDK.PropertyId.SpeechServiceResponse_TranslationRequestStablePartialResult, "true"); // 임시 번역 깜빡임 줄이기
   const micId = $("mic").value;
-  const audio = micId ? SDK.AudioConfig.fromMicrophoneInput(micId) : SDK.AudioConfig.fromDefaultMicrophoneInput();
+  let audio;
+  if ($("rawMic").checked) {                      // 원음 그대로: 크롬의 잡음 제거·에코 제거·자동 음량을 끄고 받음(작거나 먼 말소리를 잡음으로 지우지 않게)
+    const raw = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+    azStream = await navigator.mediaDevices.getUserMedia({ audio: micId ? { deviceId: { exact: micId }, ...raw } : raw });
+    audio = SDK.AudioConfig.fromStreamInput(azStream);
+  } else audio = micId ? SDK.AudioConfig.fromMicrophoneInput(micId) : SDK.AudioConfig.fromDefaultMicrophoneInput();
   if (src === "auto") {
     const lid = SDK.AutoDetectSourceLanguageConfig.fromLanguages(h.slice(0, 10).map((c) => CAT[c].loc));
     lid.mode = SDK.LanguageIdMode.Continuous;
@@ -1158,7 +1164,7 @@ $("srcLang").onchange = async () => {             // 듣는 중에 바꾸면 바
   if ($("srcLang").value !== "auto") { lastFixedLang = $("srcLang").value; try { localStorage.setItem("lastFixedLang", lastFixedLang); } catch {} }
   if (running && engineRunning === "azure") { stopAzure(); await new Promise((r) => setTimeout(r, 300)); startAzure(); }
 };
-function stopAzure() { azPhrases = null; if (azRec) { const r = azRec; azRec = null; r.stopContinuousRecognitionAsync(() => r.close(), () => r.close()); } }
+function stopAzure() { if (azStream) { azStream.getTracks().forEach((t) => t.stop()); azStream = null; } azPhrases = null; if (azRec) { const r = azRec; azRec = null; r.stopContinuousRecognitionAsync(() => r.close(), () => r.close()); } }
 
 /* ───── 마이크 고르기: 꽂은 핀마이크를 화면에서 바로 선택 ───── */
 async function listMics(askPermission) {
