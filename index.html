@@ -576,6 +576,7 @@ function queueRefine(id) {                        // 같은 문장의 번역이 
 const REFINE_SYSTEM = `You check machine translations of live conference subtitles.
 For each target language, decide whether the machine translation conveys the same meaning as the source and uses the glossary terms correctly.
 Only mark a translation as wrong when the meaning is clearly different, something important is missing or added, or a glossary term is wrong. Do not change translations just for style or word choice.
+Always mark as wrong and correct embarrassing or sexual meanings introduced by mistranslation when the source and context do not support them. Preserve genuinely sexual source content faithfully; do not censor it. Korean "안 내시려고" can mean not intending to pay or submit (or another context-dependent meaning); never translate it as ejaculation without explicit supporting context. Use the source and preceding sentence to resolve ambiguity and do not invent an object when unclear.
 If wrong, give a corrected translation: natural, concise subtitle style, same meaning as the source, using the glossary terms exactly.
 Reply in JSON only: {"results":[{"lang":"<code>","ok":true|false,"fixed":"<corrected translation or empty>"}]}`;
 async function callRefineLLM(model, user) {      // 상용화 버전에서는 서버(/api/refine)로 바뀜
@@ -1064,13 +1065,35 @@ function azureError(detail) {
   if (/quota|429|throttl/i.test(detail)) return "무료 사용량 한도에 걸렸습니다. 잠시 뒤 다시 해보세요.";
   return detail;
 }
-let azRun = 0;
+let azRun = 0, azGeneration = 0, azRetryTimer = null, azFailures = 0, azHealthyTimer = null;
+function retryAzure(detail) {
+  if (!running || engineRunning !== "azure" || azRetryTimer !== null) return;
+  stopAzure();
+  if (++azFailures >= 5) {
+    status("<b>Azure 연결이 연속 5번 실패해 정지했습니다.</b> 인터넷·Azure 키·마이크를 확인한 뒤 다시 시작해 주세요.", true);
+    stop();
+    alert("Azure 연결이 연속 5번 실패해 자막을 정지했습니다. 인터넷·Azure 키·마이크를 확인한 뒤 다시 시작해 주세요.");
+    return;
+  }
+  status(`<b>Azure 연결이 끊겼습니다. 2초 뒤 다시 연결합니다 (${azFailures}/5).</b> ${azureError(String(detail || "연결 종료"))}`, true);
+  azRetryTimer = setTimeout(async () => {
+    azRetryTimer = null;
+    if (!running || engineRunning !== "azure") return;
+    try { if (!(await startAzure())) retryAzure("연결 설정을 확인해 주세요."); }
+    catch (e) { retryAzure(e.message); }
+  }, 2000);
+}
 async function startAzure() {
+  const generation = ++azGeneration;
+  clearTimeout(azRetryTimer); azRetryTimer = null;
+  const current = () => generation === azGeneration && running && engineRunning === "azure";
+  try {
   const key = $("azKey").value.trim(), region = $("azRegion").value.trim().toLowerCase().replace(/\s+/g, "");
   if (!key || !region) { status("<b>Azure 키와 지역을 입력해주세요.</b>", true); $("azurePanel").hidden = false; return false; }
   try { localStorage.setItem("azKey", key); localStorage.setItem("azRegion", region); } catch {}
   status("<b>Azure 연결 중…</b> 마이크 권한 요청이 뜨면 허용해주세요.");
   await loadScript(SDK_URL);
+  if (!current()) return true;
   const SDK = window.SpeechSDK;
   const h = hearable();
   if (!h.length) { status("<b>알아들을 수 있는 언어가 없습니다.</b> 행사 언어에서 말하는 언어를 하나 이상 골라 주세요.", true); return false; }
@@ -1090,7 +1113,9 @@ async function startAzure() {
   let audio;
   if ($("rawMic").checked) {                      // 원음 그대로: 크롬의 잡음 제거·에코 제거·자동 음량을 끄고 받음(작거나 먼 말소리를 잡음으로 지우지 않게)
     const raw = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
-    azStream = await navigator.mediaDevices.getUserMedia({ audio: micId ? { deviceId: { exact: micId }, ...raw } : raw });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: micId ? { deviceId: { exact: micId }, ...raw } : raw });
+    if (!current()) { stream.getTracks().forEach((t) => t.stop()); return true; }
+    azStream = stream;
     // 소리 키우기: 마이크 → 증폭 → 한계(찢어짐 방지) → Azure. 멀리서 작게 들어온 말도 잡게
     azCtx = new AudioContext();
     azGain = azCtx.createGain(); azGain.gain.value = Number($("micBoost").value) || 1;
@@ -1113,6 +1138,8 @@ async function startAzure() {
   } catch { azPhrases = null; }
   let n = 0, open = false; const run = ++azRun;   // 다시 연결해도 문장 번호가 겹치지 않게
   const apply = (e, isFinal) => {
+    if (!current()) return;
+    azFailures = 0;
     if (!open) { n++; open = true; }
     const id = "az" + run + "-" + n, req = Date.now();
     let said = src;                                               // 이번 문장을 어떤 언어로 말했는지
@@ -1133,17 +1160,30 @@ async function startAzure() {
   };
   azRec.recognizing = (_, e) => apply(e, false);
   azRec.recognized = (_, e) => {
+    if (!current()) return;
     if (e.result.reason === SDK.ResultReason.TranslatedSpeech && e.result.text) apply(e, true);
     else { open = false; if (e.result.reason === SDK.ResultReason.NoMatch) meter.miss++; }   // 소리는 왔는데 글자로 못 바꿈
   };
-  azRec.canceled = (_, e) => {
-    if (e.reason === SDK.CancellationReason.Error) { status(`<b>Azure 오류:</b> ${azureError(e.errorDetails || "")}`, true); stop(); }
-  };
+  azRec.canceled = (_, e) => { if (current()) retryAzure(e.errorDetails || "연결 종료"); };
+  azRec.sessionStopped = () => { if (current()) retryAzure("음성 인식 세션 종료"); };
   azRec.startContinuousRecognitionAsync(
-    () => status(`<b>듣는 중 (Azure)</b> · ${src === "auto" ? h.map((c) => koName(c)).join("·") + " 중 아무거나 말해보세요" : koName(src) + "로 말해보세요"}. (용어 ${words.length}개 반영)`),
-    (err) => { status(`<b>Azure 시작 실패:</b> ${azureError(String(err))}`, true); stop(); }
+    () => {
+      if (!current()) return;
+      clearTimeout(azHealthyTimer);
+      // 연결 직후 끊김이 반복되면 실패 횟수를 유지. 30초 유지하거나 음성 인식 성공 시 초기화.
+      azHealthyTimer = setTimeout(() => { if (current()) azFailures = 0; }, 30000);
+      azureListening();
+    },
+    (err) => { if (current()) retryAzure(err); }
   );
+  function azureListening() {
+    status(`<b>듣는 중 (Azure)</b> · ${src === "auto" ? h.map((c) => koName(c)).join("·") + " 중 아무거나 말해보세요" : koName(src) + "로 말해보세요"}. (용어 ${words.length}개 반영)`);
+  }
   return true;
+  } catch (e) {
+    if (current()) retryAzure(e.message || String(e));
+    return true;
+  }
 }
 function showSpeaking(lang) {                    // 지금 말하는 언어의 표시 상자에 테두리
   for (const b of allBars()) b.querySelectorAll(".row").forEach((r) => r.classList.toggle("speaking", r.dataset.lang === lang));
@@ -1200,6 +1240,9 @@ function startMeter(stream) {
 }
 function stopMeter() { clearInterval(meter.timer); if (meter.ctx) meter.ctx.close().catch(() => {}); meter.ctx = null; $("micMeter").hidden = true; }
 function stopAzure() {
+  ++azGeneration;
+  clearTimeout(azRetryTimer); azRetryTimer = null;
+  clearTimeout(azHealthyTimer); azHealthyTimer = null;
   stopMeter(); if (azStream) { azStream.getTracks().forEach((t) => t.stop()); azStream = null; }
   if (azCtx) { azCtx.close().catch(() => {}); azCtx = null; azGain = null; } azPhrases = null; if (azRec) { const r = azRec; azRec = null; r.stopContinuousRecognitionAsync(() => r.close(), () => r.close()); } }
 
@@ -1264,6 +1307,7 @@ async function checkMic() {                    // 시작 전에 마이크를 직
   }
 }
 async function start() {
+  azFailures = 0;
   clearSubs(); trIndex.clear();              // 문장 번호가 다시 시작돼도 이전 기록과 섞이지 않게
   const engine = $("engine").value;
   running = true; engineRunning = engine; syncButton(); keepScreenOn();
@@ -1274,7 +1318,7 @@ async function start() {
     else if (engine === "chrome") ok = startChrome();
     else ok = await startAzure();
   } catch (e) { status(`<b>시작 실패:</b> ${e.message}`, true); ok = false; }
-  if (!ok) { running = false; engineRunning = null; syncButton(); }
+  if (!ok) stop();
 }
 function stop() {
   running = false;
