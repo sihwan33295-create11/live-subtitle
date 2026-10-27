@@ -1179,7 +1179,13 @@ async function listMics(askPermission) {
 }
 $("mic").addEventListener("pointerdown", () => { if (!$("mic").dataset.labeled) listMics(true); });   // 이름이 안 보이면 권한 요청
 $("mic").addEventListener("focus", () => { if (!$("mic").dataset.labeled) listMics(true); });
-$("mic").onchange = () => { try { localStorage.setItem("micId", $("mic").value); } catch {} };
+$("mic").onchange = async () => {               // 듣는 중에 바꾸면 새 마이크로 바로 다시 연결
+  try { localStorage.setItem("micId", $("mic").value); } catch {}
+  if (running && engineRunning === "azure") {
+    stopAzure(); await new Promise((r) => setTimeout(r, 300));
+    if (await checkMic()) startAzure(); else stop();
+  } else if (running && engineRunning === "chrome") status("<b>크롬 무료 엔진은 Windows 기본 마이크만 씁니다.</b> 고른 마이크로 들으려면 엔진을 Azure로 바꿔주세요.", true);
+};
 navigator.mediaDevices?.addEventListener?.("devicechange", () => listMics(false));   // 마이크를 꽂거나 빼면 목록 자동 갱신
 listMics(false);
 
@@ -1196,6 +1202,7 @@ async function checkMic() {                    // 시작 전에 마이크를 직
   try {
     const st = await navigator.mediaDevices.getUserMedia({ audio: micId ? { deviceId: { exact: micId } } : true });
     st.getTracks().forEach((t) => t.stop());
+    if (!$("mic").dataset.labeled) listMics(false);   // 권한을 받았으니 마이크 이름 목록 채우기
     return true;
   } catch (e) {
     const n = e.name || "", why = `(${n}${e.message ? ": " + e.message : ""})`;
@@ -1238,7 +1245,7 @@ function syncButton() {
   const b = $("start");
   b.textContent = running ? "■ 정지" : "▶ 시작";
   b.classList.toggle("running", running);
-  $("engine").disabled = running; $("mic").disabled = running;
+  $("engine").disabled = running;
 }
 $("start").onclick = () => (running ? stop() : start());
 
