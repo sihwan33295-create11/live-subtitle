@@ -172,6 +172,7 @@
   </div>
   <div class="ctrl">마이크
     <select id="mic" style="max-width:220px"><option value="">기본 마이크</option></select>
+    <span id="micMeter" class="note" hidden title="막대 = Azure로 가는 소리 크기. '못 알아들음'은 소리는 갔는데 Azure가 글자로 못 바꾼 횟수"></span>
   </div>
   <div class="ctrl">행사 언어
     <button id="langBtn" title="이 행사에서 쓰는 언어를 고릅니다">🌐 <span id="langSummary">한·영·러</span> ▾</button>
@@ -1090,6 +1091,7 @@ async function startAzure() {
     const raw = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
     azStream = await navigator.mediaDevices.getUserMedia({ audio: micId ? { deviceId: { exact: micId }, ...raw } : raw });
     audio = SDK.AudioConfig.fromStreamInput(azStream);
+    startMeter(azStream);
   } else audio = micId ? SDK.AudioConfig.fromMicrophoneInput(micId) : SDK.AudioConfig.fromDefaultMicrophoneInput();
   if (src === "auto") {
     const lid = SDK.AutoDetectSourceLanguageConfig.fromLanguages(h.slice(0, 10).map((c) => CAT[c].loc));
@@ -1122,7 +1124,10 @@ async function startAzure() {
     if (isFinal) open = false;
   };
   azRec.recognizing = (_, e) => apply(e, false);
-  azRec.recognized = (_, e) => { if (e.result.reason === SDK.ResultReason.TranslatedSpeech && e.result.text) apply(e, true); else open = false; };
+  azRec.recognized = (_, e) => {
+    if (e.result.reason === SDK.ResultReason.TranslatedSpeech && e.result.text) apply(e, true);
+    else { open = false; if (e.result.reason === SDK.ResultReason.NoMatch) meter.miss++; }   // 소리는 왔는데 글자로 못 바꿈
+  };
   azRec.canceled = (_, e) => {
     if (e.reason === SDK.CancellationReason.Error) { status(`<b>Azure 오류:</b> ${azureError(e.errorDetails || "")}`, true); stop(); }
   };
@@ -1164,7 +1169,29 @@ $("srcLang").onchange = async () => {             // 듣는 중에 바꾸면 바
   if ($("srcLang").value !== "auto") { lastFixedLang = $("srcLang").value; try { localStorage.setItem("lastFixedLang", lastFixedLang); } catch {} }
   if (running && engineRunning === "azure") { stopAzure(); await new Promise((r) => setTimeout(r, 300)); startAzure(); }
 };
-function stopAzure() { if (azStream) { azStream.getTracks().forEach((t) => t.stop()); azStream = null; } azPhrases = null; if (azRec) { const r = azRec; azRec = null; r.stopContinuousRecognitionAsync(() => r.close(), () => r.close()); } }
+/* 마이크 진단: Azure로 가는 소리 크기 막대 + 못 알아들은 횟수(크롬이 못 듣는지, Azure가 못 알아듣는지 구분) */
+const meter = { ctx: null, timer: null, miss: 0 };
+function startMeter(stream) {
+  stopMeter(); meter.miss = 0;
+  try {
+    meter.ctx = new AudioContext();
+    const an = meter.ctx.createAnalyser(); an.fftSize = 1024;
+    meter.ctx.createMediaStreamSource(stream).connect(an);
+    const buf = new Float32Array(an.fftSize); let peak = 0;
+    $("micMeter").hidden = false;
+    meter.timer = setInterval(() => {
+      an.getFloatTimeDomainData(buf);
+      let s = 0; for (const v of buf) s += v * v;
+      const db = 20 * Math.log10(Math.sqrt(s / buf.length) + 1e-9);   // 대략 -60(조용)에서 0(최대)
+      peak = Math.max(db, peak - 1.5);
+      const bars = Math.max(0, Math.min(10, Math.round((peak + 60) / 6)));
+      $("micMeter").textContent = "▮".repeat(bars) + "▯".repeat(10 - bars) + (meter.miss ? ` 못 알아들음 ${meter.miss}` : "");
+      $("micMeter").style.color = bars <= 2 ? "#e66" : "";
+    }, 100);
+  } catch {}
+}
+function stopMeter() { clearInterval(meter.timer); if (meter.ctx) meter.ctx.close().catch(() => {}); meter.ctx = null; $("micMeter").hidden = true; }
+function stopAzure() { stopMeter(); if (azStream) { azStream.getTracks().forEach((t) => t.stop()); azStream = null; } azPhrases = null; if (azRec) { const r = azRec; azRec = null; r.stopContinuousRecognitionAsync(() => r.close(), () => r.close()); } }
 
 /* ───── 마이크 고르기: 꽂은 핀마이크를 화면에서 바로 선택 ───── */
 async function listMics(askPermission) {
