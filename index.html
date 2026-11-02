@@ -37,7 +37,8 @@
   main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; padding: 4px 18px 24px; }
   @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
   #refineKey { display: none; }                               /* EvoLink 키는 나만의 링크로만 넣음(화면에서는 숨김) */
-  main.noHelp { grid-template-columns: minmax(0, 1fr); }   /* 사용법 닫으면 화면을 자막에 다 씀 */
+  main.noHelp { grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 761px) { main.noHelp .stage:not(:fullscreen) { width: calc(100% - 140px); margin-inline: auto; } }   /* 미리보기 화면은 양옆을 조금 비워 한눈에(전체화면은 꽉 차게) */   /* 사용법 닫으면 화면을 자막에 다 씀 */
   main.noHelp .help { display: none; }
   .help .helpClose { float: right; padding: 0 8px; }
 
@@ -237,13 +238,14 @@
 
 <section class="azure" id="sonioxPanel" hidden>
   <span>Soniox 키</span><input type="password" id="sxKey" placeholder="snx_로 시작하는 키" autocomplete="off">
-  <span class="note">말은 Soniox가 받아 적고, 번역은 ⚙ 자막 설정의 EvoLink 키로 AI가 합니다. 키는 이 기기의 브라우저에만 저장됩니다.</span>
+  <span class="note">처음 한 번만 넣으면 이 기기에 저장됩니다.</span>
 </section>
 
 <section class="setPanel" id="setPanel" hidden>
   <div class="setRow"><b>전체 글자 크기</b><input type="range" id="size" min="14" max="48" value="26"><span id="sizeVal" class="note"></span></div>
   <div class="setRow"><b>자막 배경 진하기</b><input type="range" id="bgAlpha" min="0" max="100" value="82"><span id="bgVal" class="note"></span></div>
   <label class="chk"><input type="checkbox" id="autohide">말 없으면 5초 뒤 자막 숨기기</label>
+  <div class="setRow"><button id="glossBtn">📝 행사 용어 넣기</button><span class="note">발표자 이름·기업명처럼 자주 틀리는 단어를 미리 알려주면 더 정확해집니다(선택).</span></div>
   <label class="chk" hidden title="크롬의 잡음 제거·에코 제거·자동 음량을 끄고 마이크 소리를 그대로 받습니다. 행사장 믹서·핀마이크에 권장. 스피커 소리가 마이크로 되울리면 끄세요."><input type="checkbox" id="rawMic" checked>마이크 원음 그대로 받기 (Azure)</label>  <div class="setRow"><label class="chk"><input type="checkbox" id="refineOn">AI 번역 다듬기</label>
     <select id="refineModel" hidden title="번역·다듬기에 쓰는 AI 모델(EvoLink). 화면에서는 숨기고 가장 빠른 모델로 고정">
       <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite (빠름, 추천)</option>
@@ -270,7 +272,7 @@
   <div class="note" id="langNote"></div>
 </section>
 
-<section class="azure" id="glossPanel">
+<section class="azure" id="glossPanel" hidden>
   <span>오늘 행사 용어</span>
   <input type="text" id="eventTerms" style="width:520px" autocomplete="off"
     placeholder="발표자 이름, 기업명, 행사명 등을 쉼표로 구분해 입력 (예: 홍길동, 삼성전자, 창업캠프)">
@@ -1529,7 +1531,12 @@ function syncButton() {
 $("start").onclick = () => (running ? stop() : start());
 
 /* ───── 화면 설정 ───── */
-$("engine").onchange = () => { $("azurePanel").hidden = $("engine").value !== "azure"; $("sonioxPanel").hidden = $("engine").value !== "soniox"; };
+$("engine").onchange = () => {                   // 키 칸은 키가 아직 없을 때만 보여줌(사용자는 몰라도 되게)
+  const e = $("engine").value;
+  $("azurePanel").hidden = !(e === "azure" && !$("azKey").value.trim());
+  $("sonioxPanel").hidden = !(e === "soniox" && !$("sxKey").value.trim());
+};
+$("glossBtn").onclick = () => { $("glossPanel").hidden = !$("glossPanel").hidden; if (!$("glossPanel").hidden) $("eventTerms").focus(); };
 /* 행사 언어 고르기 */
 function renderLangPanel() {
   $("langGrid").innerHTML = CATALOG.map((c) => `<label><input type="checkbox" value="${c.code}" ${selLangs.includes(c.code) ? "checked" : ""} ${c.code === "ko" ? "disabled" : ""}>
@@ -1837,7 +1844,8 @@ applyLangStyle(); saveTranscriptSoon();
 if ($("azKey").value) { $("engine").value = "azure"; $("azurePanel").hidden = false; }   // 키가 있으면 바로 Azure로
 try { $("sxKey").value = localStorage.getItem("sxKey") || ""; } catch {}
 $("sxKey").onchange = () => { try { localStorage.setItem("sxKey", $("sxKey").value.trim()); } catch {} };
-if ($("sxKey").value) { $("engine").value = "soniox"; $("engine").onchange(); }   // Soniox 키가 있으면 Soniox 우선(Azure 무료 체험 종료)
+if ($("sxKey").value) $("engine").value = "soniox";   // Soniox 키가 있으면 Soniox 우선
+$("engine").onchange();
 applySize();
 buildBar($("subbar"));
 /* 오른쪽 사용법: 처음 들어온 기기에서만 펼쳐 보여주고, 그다음부터는 닫아 둠(❓ 사용법으로 열기) */
