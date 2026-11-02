@@ -1263,7 +1263,8 @@ function sxHearable() { return hearable().filter((c) => SX_LANGS.includes(sxCode
 function sxSaid(langs) {                          // 이번 문장에서 가장 많이 나온 언어
   const cnt = {}; for (const l of langs) if (l) cnt[l] = (cnt[l] || 0) + 1;
   const top = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0];
-  return (top && hearable().find((c) => sxCode(c) === top)) || ($("srcLang").value !== "auto" ? $("srcLang").value : "ko");
+  if (top) return selLangs.find((c) => sxCode(c) === top) || top;   // 행사 언어에 없는 언어로 말해도 그 언어로 받아 고른 언어 전부로 번역
+  return $("srcLang").value !== "auto" ? $("srcLang").value : "ko";
 }
 const TRANSLATE_SYSTEM = `You translate live lecture subtitles. Translate the source sentence into every requested target language.
 Natural, concise subtitle style. Keep names of people, universities and organizations accurate; use the glossary terms exactly when they appear.
@@ -1359,8 +1360,9 @@ async function startSoniox() {
       if (!current()) return ws.close();
       ws.send(JSON.stringify({
         model: "stt-rt-v5", audio_format: "pcm_s16le", sample_rate: sxCtx.sampleRate, num_channels: 1,
-        language_hints: src === "auto" ? h.map(sxCode) : [sxCode(src)], language_hints_strict: src !== "auto",
-        enable_language_identification: src === "auto", enable_endpoint_detection: true, max_endpoint_delay_ms: 1500,
+        // 말하는 언어를 고정해도 다른 언어로 말하면 그 언어로 알아듣고 문장마다 언어를 판별(위즈와 같은 동작). strict는 언어 판별을 틀리게 해서 끔
+        language_hints: [...new Set([src === "auto" ? h[0] : src, ...h].map(sxCode))],
+        enable_language_identification: true, enable_endpoint_detection: true, max_endpoint_delay_ms: 1500,
         context: { general: [{ key: "domain", value: "University lecture" }], terms: words },
       }));
       sx.run++; sx.n = 0; sx.fin = ""; sx.finLangs = []; sx.live = "";
