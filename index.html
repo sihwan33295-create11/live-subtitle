@@ -168,8 +168,9 @@
     </select>
   </div>
   <div class="ctrl">말하는 언어
-    <select id="srcLang" title="Azure 엔진에서만 적용. 질의응답처럼 언어가 섞이면 '자동'. Ctrl+F1 = 자동 ↔ 직전 언어 전환(전체화면에서도)">
+    <select id="srcLang" title="발표 때는 발표자 언어를 고르면 더 정확합니다. 질의응답처럼 언어가 섞이면 '자동'. Ctrl+F1 = 자동 ↔ 직전 언어 전환(전체화면에서도)">
     </select>
+    <button id="qaBtn" title="발표 ↔ 질의응답 전환 (Ctrl+F1). 질의응답은 모든 행사 언어를 알아서 알아듣습니다">🙋 질의응답</button>
   </div>
   <div class="ctrl">마이크
     <select id="mic" style="max-width:220px"><option value="">기본 마이크</option></select>
@@ -1221,8 +1222,9 @@ addEventListener("keydown", (e) => {
 $("srcLang").onchange = async () => {             // 듣는 중에 바꾸면 바로 다시 연결
   try { localStorage.setItem("srcLang", $("srcLang").value); } catch {}
   if ($("srcLang").value !== "auto") { lastFixedLang = $("srcLang").value; try { localStorage.setItem("lastFixedLang", lastFixedLang); } catch {} }
-  if (running && engineRunning === "azure") { stopAzure(); await new Promise((r) => setTimeout(r, 300)); startAzure(); }
-  if (running && engineRunning === "soniox") { stopSoniox(); await new Promise((r) => setTimeout(r, 300)); startSoniox(); }
+  syncQaBtn();
+  if (running && $("engine").value === "soniox") restartSmart();
+  else if (running && engineRunning === "azure") { stopAzure(); await new Promise((r) => setTimeout(r, 300)); startAzure(); }
 };
 /* 마이크 진단: Azure로 가는 소리 크기 막대 + 못 알아들은 횟수(크롬이 못 듣는지, Azure가 못 알아듣는지 구분) */
 const meter = { ctx: null, timer: null, miss: 0 };
@@ -1394,6 +1396,28 @@ async function startSoniox() {
     return true;
   }
 }
+/* ④ 엔진 자동 고르기: 평소(발표·질의응답)는 Soniox. 말하는 언어를 몽골어처럼 Soniox가 못 알아듣는 언어로 고를 때만 Azure.
+   몽골어·우즈베크어 등으로 말하는 일은 드물어서, 질의응답 '자동'은 Soniox로 두고 그 언어들은 자막으로만 보여줌 */
+function sonioxRoute() {
+  const src = $("srcLang").value;
+  return src === "auto" || SX_LANGS.includes(sxCode(src)) ? "soniox" : "azure";
+}
+async function startSmart() {
+  const r = sonioxRoute();
+  if (r === "azure" && !$("azKey").value.trim()) { status(`<b>${koName($("srcLang").value)}는 Azure로 들어야 합니다.</b> Azure 키를 넣어주세요(나만의 링크로 들어오면 자동 저장).`, true); $("azurePanel").hidden = false; return false; }
+  engineRunning = r;
+  return r === "soniox" ? startSoniox() : startAzure();
+}
+async function restartSmart() {
+  stopAzure(); stopSoniox(); await new Promise((res) => setTimeout(res, 300));
+  if (running && $("engine").value === "soniox") { azFailures = 0; sxFailures = 0; if (!(await startSmart())) stop(); }
+}
+function syncQaBtn() {
+  const qa = $("srcLang").value === "auto";
+  $("qaBtn").classList.toggle("primary", qa);
+  $("qaBtn").textContent = qa ? "🙋 질의응답 중 (발표로)" : "🙋 질의응답";
+}
+$("qaBtn").onclick = () => toggleAutoLang();
 function stopSoniox() {
   ++sxGeneration;
   clearTimeout(sxRetryTimer); sxRetryTimer = null; clearTimeout(sx.trTimer); sx.trTimer = null;
@@ -1429,7 +1453,7 @@ $("mic").onchange = async () => {               // 듣는 중에 바꾸면 새 �
     if (await checkMic()) startAzure(); else stop();
   } else if (running && engineRunning === "soniox") {
     stopSoniox(); await new Promise((r) => setTimeout(r, 300));
-    if (await checkMic()) startSoniox(); else stop();
+    if (await checkMic()) startSmart(); else stop();
   } else if (running && engineRunning === "chrome") status("<b>크롬 무료 엔진은 Windows 기본 마이크만 씁니다.</b> 고른 마이크로 들으려면 엔진을 Azure로 바꿔주세요.", true);
 };
 navigator.mediaDevices?.addEventListener?.("devicechange", () => listMics(false));   // 마이크를 꽂거나 빼면 목록 자동 갱신
@@ -1476,7 +1500,7 @@ async function start() {
     if (engine !== "demo" && !(await checkMic())) ok = false;
     else if (engine === "demo") startDemo();
     else if (engine === "chrome") ok = startChrome();
-    else if (engine === "soniox") { sxFailures = 0; ok = await startSoniox(); }
+    else if (engine === "soniox") { sxFailures = 0; ok = await startSmart(); }
     else ok = await startAzure();
   } catch (e) { status(`<b>시작 실패:</b> ${e.message}`, true); ok = false; }
   if (!ok) stop();
@@ -1528,8 +1552,9 @@ function setLangs(codes) {
   rebuildAll();
   if (window.__styleReady) applyLangStyle();
   if (typeof shareCh !== "undefined" && shareCh) shareCh.send({ type: "broadcast", event: "hello", payload: { langs: langsPayload() } });
-  if (running && engineRunning === "azure") { stopAzure(); setTimeout(startAzure, 300); }
-  if (running && engineRunning === "soniox") { stopSoniox(); setTimeout(startSoniox, 300); }
+  syncQaBtn();
+  if (running && $("engine").value === "soniox") restartSmart();
+  else if (running && engineRunning === "azure") { stopAzure(); setTimeout(startAzure, 300); }
 }
 $("langBtn").onclick = () => { $("langPanel").hidden = !$("langPanel").hidden; };
 document.querySelectorAll("[data-preset]").forEach((b) => (b.onclick = () => setLangs(b.dataset.preset.split(","))));
