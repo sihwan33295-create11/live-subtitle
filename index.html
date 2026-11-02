@@ -134,11 +134,8 @@
 
   /* 자막 전용 화면(TV) */
   body.tv { background: #000; margin: 0; overflow: hidden; height: 100vh; }
-  body.tv .subbar { height: 100vh; justify-content: center; background: #000; padding: 4vh 4vw; gap: 2.5vh; overflow: hidden;
-    /* 언어 줄 수에 맞춰 화면 높이 안에 다 들어가도록 글자 크기를 자동으로 줄임 */
-    font-size: min(calc(var(--fsn) * .16vw), calc((92vh - (var(--tvRows, 3) - 1) * 2.5vh) / (var(--tvRows, 3) * var(--tvRowEm, 4.5)))); }
-  body.tv .row { --lines: var(--tvLines, 3); }
-  body.tv .subbar.single .row { --lines: 5; font-size: 1.15em; }
+  body.tv .subbar { height: 100vh; justify-content: center; background: #000; padding: 4vh 4vw; gap: 2.5vh; overflow: hidden; box-sizing: border-box; }   /* 글자 크기·줄 수는 fitTv가 창 크기에 맞춰 정함 */
+  body.tv .row { flex: 1 1 0; min-height: 0; box-sizing: border-box; }   /* 언어 칸들이 창 높이를 똑같이 나눠 가짐 */
   .tvbar { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
     color: #9aa3b2; font: 14px "Malgun Gothic", system-ui, sans-serif; opacity: 0; transition: opacity .3s; z-index: 2; }
   body.tv:hover .tvbar { opacity: 1; }
@@ -878,14 +875,6 @@ function enabledLangs() {
 function buildBar(bar) {
   const langs = bar.dataset.only ? [bar.dataset.only] : enabledLangs();
   bar.classList.toggle("single", langs.length === 1);
-  if (bar.ownerDocument !== document) {              // TV 창: 언어가 많으면 줄 수를 줄이고 글자도 화면에 맞춤
-    const n = langs.length, lines = n === 1 ? 5 : n <= 3 ? 3 : 2;
-    bar.style.setProperty("--tvRows", n);
-    bar.style.setProperty("--tvLines", lines);
-    bar.style.setProperty("--tvKoLines", Math.max(1, lines - 1));
-    const lh = Math.max(...langs.map((c) => fontOf(c).lh));   // 태국어 등 줄 간격이 넓은 언어 기준
-    bar.style.setProperty("--tvRowEm", (n === 1 ? 5 * lh * 1.15 + .3 : lines * lh + .65).toFixed(2));   // 구분선 여백 포함
-  }
   if (bar.id === "subbar" && bar.ownerDocument === document)   // 발표 화면: 4개 이상이면 줄당 글자를 조금씩 줄임
     { $("stage").style.setProperty("--rowsK", langs.length <= 3 ? 1 : Math.max(0.72, 1 - 0.08 * (langs.length - 3)).toFixed(2));
       $("stage").classList.toggle("many", langs.length >= 4); }
@@ -897,6 +886,25 @@ function buildBar(bar) {
     bar.appendChild(row);
   }
   renderBar(bar);
+  fitTv(bar);
+}
+/* 자막 전용 화면: 창 크기에 맞춰 꽉 차게. 넓히면 한 줄에 더 많이, 높이면 줄 수가 더 많이, 줄이면 글자가 같이 작아짐 */
+function fitTv(bar) {
+  if (!bar.ownerDocument.body.classList.contains("tv")) return;
+  const w = bar.ownerDocument.defaultView, rows = [...bar.querySelectorAll(".row")], n = rows.length;
+  if (!w || w.closed || !n) return;
+  const W = w.innerWidth, H = w.innerHeight;
+  const rowH = (H * .92 - (n - 1) * H * .025) / n;     // 위아래 여백 4vh씩, 칸 사이 2.5vh
+  const unit = (r) => fontOf(r.dataset.lang).lh * ((langStyle[r.dataset.lang]?.scale || 100) / 100);
+  const big = Math.max(...rows.map(unit));             // 줄 간격이 가장 넓은 언어 기준
+  const avail = (fs) => rowH - (n > 1 ? fs * .3 + 2 : 0);   // 칸 사이 구분선 여백 제외
+  let fs = Math.sqrt(W * H / n) / 12.5 * ((+$("size").value || 26) / 26);   // 면적 기준이라 가로·세로로 늘릴 때 글자는 천천히 커짐
+  const fitFs = (l) => Math.max(8, rowH / (l * big + (n > 1 ? .3 : 0)) - (n > 1 ? 2 / (l * big + .3) : 0));   // 남는 틈 없이 칸 높이에 딱 맞춤
+  let lines = Math.max(1, Math.round(avail(fs) / (fs * big)));
+  while (W * .8 / fitFs(lines) < 16 && fitFs(lines + 1) >= 12) lines++;   // 한 줄에 16자는 들어가게(너무 큰 글자로 한 줄만 나오지 않게)
+  fs = fitFs(lines);
+  bar.style.fontSize = fs.toFixed(2) + "px";
+  for (const r of rows) r.style.setProperty("--lines", Math.max(1, Math.floor((avail(fs) + .5) / (fs * unit(r)))));
 }
 function renderBar(bar) {
   const p = prevId !== null ? segs[prevId] : null;
@@ -1606,6 +1614,7 @@ function applySize() {
   const v = $("size").value;
   const docs = new Set([document, ...[...extraBars].map((b) => b.ownerDocument)]);
   for (const d of docs) { d.documentElement.style.setProperty("--fs", v + "px"); d.documentElement.style.setProperty("--fsn", v); }
+  extraBars.forEach(fitTv);
 }
 $("size").oninput = () => { applySize(); try { localStorage.setItem("fsize", $("size").value); } catch {} };
 /* 자막 설정: 배경 진하기 + 언어별 크기·색 */
@@ -1627,6 +1636,7 @@ function applyLangStyle() {
     el.textContent = fontCss(selLangs) + "\n" + css;
     d.documentElement.style.setProperty("--subA", alpha);
   }
+  extraBars.forEach(fitTv);
   $("sizeVal").textContent = $("size").value + "px"; $("bgVal").textContent = $("bgAlpha").value + "%";
 }
 function renderStyleGrid() {
@@ -1671,6 +1681,7 @@ function attachWindow(w, kind) {
     d.getElementById("fs").onclick = toggleFs;
     d.body.ondblclick = toggleFs;
     d.getElementById("only").onchange = (e) => { bar.dataset.only = e.target.value; buildBar(bar); };
+    w.addEventListener("resize", () => fitTv(bar));
   }
   applySize();
   applyLangStyle();
