@@ -194,7 +194,7 @@
   <span class="ctrl">화면 방식</span>
   <button id="deck" class="primary" title="PPT 파일을 그대로 넣으면 슬라이드 아래에 자막이 붙어서 나옵니다">📄 발표자료 넣기 (PPT·PDF)</button>
   <input type="file" id="deckFile" accept=".pptx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden>
-  <button id="capture" title="PPT 화면을 받아와서 위에 줄여 보여주고, 아래에 자막">🖥 화면 합성 (PPT 안 가림)</button>
+  <button id="capture" title="노트북 화면·PPT 창·동영상을 받아와 위에 보여주고, 자막은 그 아래에 따로(겹치지 않음)">🖥 화면 공유 (자막은 아래에)</button>
   <button id="tv" title="자막만 크게 보이는 새 창. 보조 TV로 옮겨서 사용">📺 자막 전용 화면 (TV용)</button>
   <button id="full">⛶ 전체화면</button>
   <button id="share" title="청중이 QR을 찍으면 자기 휴대폰에서 원하는 언어로 자막을 봅니다">📱 청중 휴대폰 자막 (QR)</button>
@@ -326,10 +326,10 @@
     <h3>💾 자막 기록</h3>
     <p>나온 자막과 질문이 시간순으로 모입니다. <b>메모장(TXT)</b>이나 <b>엑셀(CSV)</b>로 저장해 결과보고서 정리에 쓰세요.</p>
 
-    <h3>🖥 화면 합성</h3>
+    <h3>🖥 화면 공유</h3>
     <ol>
       <li>노트북에서 PPT 슬라이드쇼를 켭니다.</li>
-      <li>이 페이지를 프로젝터 화면으로 옮기고 <b>🖥 화면 합성</b>을 누릅니다.</li>
+      <li>이 페이지를 프로젝터 화면으로 옮기고 <b>🖥 화면 공유</b>를 누릅니다.</li>
       <li>공유할 화면으로 PPT 창(또는 노트북 화면)을 고릅니다.</li>
       <li><b>⛶ 전체화면</b>을 누르면 위에는 슬라이드, 아래에는 자막이 뜹니다.</li>
     </ol>
@@ -1797,13 +1797,13 @@ const rerender = () => { clearTimeout(deckResize); deckResize = setTimeout(rende
 addEventListener("resize", rerender);
 document.addEventListener("fullscreenchange", rerender);
 
-/* 화면 합성: PPT 화면을 받아와 위에 보여주고 아래에 자막 */
+/* 화면 공유: PPT 화면을 받아와 위에 보여주고 아래에 자막 */
 let capStream = null;
 function stopCapture() {
   if (capStream) capStream.getTracks().forEach((t) => t.stop());
   capStream = null;
   $("cap").srcObject = null; $("cap").hidden = true; $("slide").hidden = false;
-  $("capture").classList.remove("on"); $("capture").textContent = "🖥 화면 합성 (PPT 안 가림)";
+  $("capture").classList.remove("on"); $("capture").textContent = "🖥 화면 공유 (자막은 아래에)";
 }
 $("capture").onclick = async () => {
   if (capStream) return stopCapture();
@@ -1815,9 +1815,9 @@ $("capture").onclick = async () => {
   if (deck) closeDeck();
   const v = $("cap");
   v.srcObject = capStream; v.hidden = false; $("slide").hidden = true;
-  $("capture").classList.add("on"); $("capture").textContent = "■ 화면 합성 끄기";
+  $("capture").classList.add("on"); $("capture").textContent = "■ 화면 공유 끄기";
   capStream.getVideoTracks()[0].addEventListener("ended", stopCapture);
-  status("<b>화면 합성 중</b> · 이 창을 프로젝터 화면으로 옮기고 <b>⛶ 전체화면</b>을 누르세요.");
+  status("<b>화면 공유 중</b> · 이 창을 프로젝터 화면으로 옮기고 <b>⛶ 전체화면</b>을 누르세요.");
 };
 
 /* 기기에서 안 되는 기능은 숨기기 (폰 등) */
