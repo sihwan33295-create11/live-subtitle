@@ -164,6 +164,7 @@
       <option value="demo">① 데모 (마이크 없이 흐름 보기)</option>
       <option value="chrome">② 크롬 무료 (PC 마이크)</option>
       <option value="azure">③ Azure (PC·폰 마이크, 고품질)</option>
+      <option value="soniox">④ Soniox + AI 번역 (위즈와 같은 인식)</option>
     </select>
   </div>
   <div class="ctrl">말하는 언어
@@ -226,6 +227,11 @@
   <span>지역</span><input type="text" id="azRegion" placeholder="예: koreacentral" style="width:150px" autocomplete="off">
   <span>번역 키(질문용)</span><input type="password" id="trKey" placeholder="Translator 키" autocomplete="off" style="width:200px">
   <span class="note">키는 이 기기의 브라우저에만 저장됩니다.</span>
+</section>
+
+<section class="azure" id="sonioxPanel" hidden>
+  <span>Soniox 키</span><input type="password" id="sxKey" placeholder="snx_로 시작하는 키" autocomplete="off">
+  <span class="note">말은 Soniox가 받아 적고, 번역은 ⚙ 자막 설정의 EvoLink 키로 AI가 합니다. 키는 이 기기의 브라우저에만 저장됩니다.</span>
 </section>
 
 <section class="setPanel" id="setPanel" hidden>
@@ -569,7 +575,7 @@ const refineTimers = new Map(), refineDone = new Set();
 const refineStat = { checked: 0, replaced: 0, failed: 0, ms: 0 };
 let refineBusy = 0, lastRefined = "";
 function queueRefine(id) {                        // 같은 문장의 번역이 다 들어오도록 0.6초 기다렸다 한 번만
-  if (!$("refineOn").checked || refineDone.has(id)) return;
+  if (!$("refineOn").checked || refineDone.has(id) || engineRunning === "soniox") return;   // Soniox는 처음부터 AI가 번역하므로 다시 확인 안 함
   clearTimeout(refineTimers.get(id));
   refineTimers.set(id, setTimeout(() => { refineTimers.delete(id); refine(id); }, 600));
 }
@@ -631,7 +637,7 @@ function showRefineInfo() {
     ? `확인 ${n}문장 · 교체 ${refineStat.replaced}곳 · 평균 ${n ? (refineStat.ms / n / 1000).toFixed(1) : "-"}초` + (refineStat.failed ? ` · 실패 ${refineStat.failed}` : "")
     : "문장이 끝나면 AI가 번역을 다시 확인해, 뜻이 틀린 언어만 1초쯤 뒤 고쳐 끼웁니다(노랗게 깜빡임).";
 }
-$("micBoost").addEventListener("change", () => { if (azGain) azGain.gain.value = Number($("micBoost").value) || 1; });   // 듣는 중에도 바로 적용
+$("micBoost").addEventListener("change", () => { for (const g of [azGain, sxGain]) if (g) g.gain.value = Number($("micBoost").value) || 1; });   // 듣는 중에도 바로 적용
 for (const k of ["refineOn", "refineModel", "refineKey", "rawMic", "micBoost"]) {
   const el = $(k), v = (() => { try { return localStorage.getItem(k); } catch { return null; } })();
   if (v !== null) { if (el.type === "checkbox") el.checked = v === "1"; else el.value = v; }
@@ -1216,6 +1222,7 @@ $("srcLang").onchange = async () => {             // 듣는 중에 바꾸면 바
   try { localStorage.setItem("srcLang", $("srcLang").value); } catch {}
   if ($("srcLang").value !== "auto") { lastFixedLang = $("srcLang").value; try { localStorage.setItem("lastFixedLang", lastFixedLang); } catch {} }
   if (running && engineRunning === "azure") { stopAzure(); await new Promise((r) => setTimeout(r, 300)); startAzure(); }
+  if (running && engineRunning === "soniox") { stopSoniox(); await new Promise((r) => setTimeout(r, 300)); startSoniox(); }
 };
 /* 마이크 진단: Azure로 가는 소리 크기 막대 + 못 알아들은 횟수(크롬이 못 듣는지, Azure가 못 알아듣는지 구분) */
 const meter = { ctx: null, timer: null, miss: 0 };
@@ -1246,6 +1253,154 @@ function stopAzure() {
   stopMeter(); if (azStream) { azStream.getTracks().forEach((t) => t.stop()); azStream = null; }
   if (azCtx) { azCtx.close().catch(() => {}); azCtx = null; azGain = null; } azPhrases = null; if (azRec) { const r = azRec; azRec = null; r.stopContinuousRecognitionAsync(() => r.close(), () => r.close()); } }
 
+/* ───── ④ Soniox: 말은 Soniox가 받아 적고(위즈와 같은 엔진), 여러 언어 번역은 AI(EvoLink)가 한 번에 ───── */
+const SX_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
+const SX_LANGS = ["ko", "en", "ru", "vi", "kk", "zh", "ja", "th", "id", "ms", "hi", "ar", "tr", "es", "fr", "de", "tl"];   // Soniox가 알아듣는 언어(몽골어·우즈베크어 등은 자막만)
+const sxCode = (c) => (c === "fil" ? "tl" : c.split("-")[0]);
+let sxWs = null, sxStream = null, sxCtx = null, sxGain = null, sxGeneration = 0, sxRetryTimer = null, sxFailures = 0;
+const sx = { run: 0, n: 0, fin: "", finLangs: [], live: "", trTimer: null, trBusy: false, trLast: "", prevSrc: "" };
+function sxHearable() { return hearable().filter((c) => SX_LANGS.includes(sxCode(c))); }
+function sxSaid(langs) {                          // 이번 문장에서 가장 많이 나온 언어
+  const cnt = {}; for (const l of langs) if (l) cnt[l] = (cnt[l] || 0) + 1;
+  const top = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0];
+  return (top && hearable().find((c) => sxCode(c) === top)) || ($("srcLang").value !== "auto" ? $("srcLang").value : "ko");
+}
+const TRANSLATE_SYSTEM = `You translate live lecture subtitles. Translate the source sentence into every requested target language.
+Natural, concise subtitle style. Keep names of people, universities and organizations accurate; use the glossary terms exactly when they appear.
+The source comes from speech recognition and may contain small recognition errors; translate the most likely intended meaning, but do not add content.
+Never introduce sexual or embarrassing meanings that the source and context do not support.
+Reply in JSON only, one key per target code: {"<code>":"<translation>", ...}`;
+async function sxTranslate(id, said, src, isFinal) {    // AI가 한 번 호출로 모든 언어 번역
+  const targets = selLangs.filter((l) => l !== said);
+  if (!targets.length || !src.trim()) return;
+  const key = $("refineKey").value.trim();
+  if (!key) { status("<b>번역할 EvoLink 키가 없습니다.</b> ⚙ 자막 설정의 'EvoLink 키' 칸에 넣어주세요. (받아 적기는 계속됩니다)", true); return; }
+  const name = (c) => (CAT[c] ? CAT[c].name : c);
+  const terms = allTerms().filter((t) => [t[said], t.ko, t.en].some((w) => w && src.includes(w))).slice(0, 30)
+    .map((t) => [said, ...targets].map((l) => t[l] ? `${l}: ${t[l]}` : "").filter(Boolean).join(" | "));
+  const user = (sx.prevSrc ? `Previous sentence (context only): ${sx.prevSrc}\n` : "") +
+    `Source (${said}, ${name(said)}): ${src}\n` + (terms.length ? `Glossary:\n${terms.join("\n")}\n` : "") +
+    `Targets: ${targets.map((l) => `${l} (${name(l)})`).join(", ")}`;
+  const req = Date.now(), ctrl = new AbortController(), to = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const body = { model: $("refineModel").value, messages: [{ role: "system", content: TRANSLATE_SYSTEM }, { role: "user", content: user }], response_format: { type: "json_object" }, max_tokens: 1200 };
+    if (body.model.startsWith("gpt-")) body.reasoning_effort = "none";
+    const r = await fetch(REFINE_URL, { method: "POST", signal: ctrl.signal, headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error("번역 실패 " + r.status);
+    const j = await r.json();
+    const out = JSON.parse(String(j.choices?.[0]?.message?.content || "{}").replace(/^```(json)?|```$/g, "").trim());
+    if (!running || engineRunning !== "soniox") return;
+    for (const t of targets) if (out[t]) setText(id, t, String(out[t]).trim(), isFinal, req);
+  } catch (e) { if (isFinal) console.warn("Soniox 번역:", e.message); }
+  finally { clearTimeout(to); }
+}
+function sxShow(isFinal) {                        // 받아 적은 글자를 자막에 반영
+  const text = (sx.fin + sx.live).trim();
+  if (!text) return;
+  const id = "sx" + sx.run + "-" + sx.n, said = sxSaid(sx.finLangs);
+  curSaid = said; segSaid[id] = said;
+  beginSeg(id); setText(id, said, text, isFinal, Date.now()); showSpeaking(said);
+  if (isFinal) {
+    clearTimeout(sx.trTimer); sx.trTimer = null;
+    sxTranslate(id, said, text, true); sx.prevSrc = text;
+    sx.n++; sx.fin = ""; sx.finLangs = []; sx.live = ""; sx.trLast = "";
+  } else if (!sx.trTimer && text.length - sx.trLast.length >= 8) {   // 긴 문장은 말하는 중에도 1.5초마다 임시 번역
+    const n = sx.n;
+    sx.trTimer = setTimeout(async () => {
+      sx.trTimer = null;
+      const cur = (sx.fin + sx.live).trim(); if (n !== sx.n || !cur || sx.trBusy || cur === sx.trLast) return;
+      sx.trBusy = true; sx.trLast = cur;
+      try { await sxTranslate(id, said, cur, false); } finally { sx.trBusy = false; }
+    }, 1500);
+  }
+}
+function retrySoniox(detail) {
+  if (!running || engineRunning !== "soniox" || sxRetryTimer !== null) return;
+  stopSoniox();
+  if (++sxFailures >= 5) { status(`<b>Soniox 연결이 연속 5번 실패해 정지했습니다.</b> ${detail}`, true); stop(); return; }
+  status(`<b>Soniox 연결이 끊겼습니다. 2초 뒤 다시 연결합니다 (${sxFailures}/5).</b> ${detail}`, true);
+  sxRetryTimer = setTimeout(() => { sxRetryTimer = null; if (running && engineRunning === "soniox") startSoniox(); }, 2000);
+}
+function sonioxError(j) {
+  if (/unauthorized|authentication/i.test(j.error_type || "") || j.error_code === 401) return "Soniox 키가 틀렸습니다. Soniox 관리 화면의 API Keys에서 다시 확인해주세요.";
+  if (j.error_code === 402 || /balance|credit|payment/i.test(j.error_message || "")) return "Soniox 잔액이 부족합니다. 관리 화면에서 충전해주세요.";
+  return `${j.error_type || ""} ${j.error_message || ""}`.trim();
+}
+async function startSoniox() {
+  const generation = ++sxGeneration;
+  const current = () => generation === sxGeneration && running && engineRunning === "soniox";
+  const key = $("sxKey").value.trim();
+  if (!key) { status("<b>Soniox 키를 입력해주세요.</b>", true); $("sonioxPanel").hidden = false; return false; }
+  try { localStorage.setItem("sxKey", key); } catch {}
+  const h = sxHearable();
+  if (!h.length) { status("<b>Soniox가 알아들을 수 있는 언어가 없습니다.</b> 행사 언어에 한국어·영어 등을 넣어주세요.", true); return false; }
+  let src = $("srcLang").value;
+  if (src !== "auto" && !h.includes(src)) src = "auto";
+  if (src === "auto" && h.length === 1) src = h[0];
+  status("<b>Soniox 연결 중…</b>");
+  try {
+    const micId = $("mic").value;
+    const raw = $("rawMic").checked ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : {};
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: micId ? { deviceId: { exact: micId }, ...raw } : (Object.keys(raw).length ? raw : true) });
+    if (!current()) { stream.getTracks().forEach((t) => t.stop()); return true; }
+    sxStream = stream;
+    sxCtx = new AudioContext({ sampleRate: 16000 });          // Soniox로 보낼 16kHz 소리
+    sxGain = sxCtx.createGain(); sxGain.gain.value = Number($("micBoost").value) || 1;
+    const lim = sxCtx.createDynamicsCompressor();
+    lim.threshold.value = -6; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.2;
+    const dest = sxCtx.createMediaStreamDestination(), proc = sxCtx.createScriptProcessor(4096, 1, 1);
+    sxCtx.createMediaStreamSource(stream).connect(sxGain).connect(lim);
+    lim.connect(dest); lim.connect(proc); proc.connect(sxCtx.destination);
+    startMeter(dest.stream);
+    const ws = new WebSocket(SX_URL, ["soniox-api-key", key]);
+    sxWs = ws;
+    const words = [...new Set(allTerms().flatMap((t) => [t.ko, t.en]).filter(Boolean))].slice(0, 300);
+    ws.onopen = () => {
+      if (!current()) return ws.close();
+      ws.send(JSON.stringify({
+        model: "stt-rt-v5", audio_format: "pcm_s16le", sample_rate: sxCtx.sampleRate, num_channels: 1,
+        language_hints: src === "auto" ? h.map(sxCode) : [sxCode(src)], language_hints_strict: src !== "auto",
+        enable_language_identification: src === "auto", enable_endpoint_detection: true, max_endpoint_delay_ms: 1500,
+        context: { general: [{ key: "domain", value: "University lecture" }], terms: words },
+      }));
+      sx.run++; sx.n = 0; sx.fin = ""; sx.finLangs = []; sx.live = "";
+      proc.onaudioprocess = (e) => {               // 소리를 16비트 숫자로 바꿔 Soniox로 전송
+        if (ws.readyState !== 1) return;
+        const f = e.inputBuffer.getChannelData(0), pcm = new Int16Array(f.length);
+        for (let i = 0; i < f.length; i++) pcm[i] = Math.max(-1, Math.min(1, f[i])) * 0x7fff;
+        ws.send(pcm.buffer);
+      };
+      status(`<b>듣는 중 (Soniox)</b> · ${src === "auto" ? h.map((c) => koName(c)).join("·") + " 중 아무거나 말해보세요" : koName(src) + "로 말해보세요"}. 번역은 AI가 합니다.`);
+    };
+    ws.onmessage = (m) => {
+      if (!current()) return;
+      const j = JSON.parse(m.data);
+      if (j.error_code) { retrySoniox(sonioxError(j)); return; }
+      let live = "", ended = false;
+      for (const t of j.tokens || []) {
+        if (t.text === "<end>") { ended = true; continue; }
+        if (t.translation_status === "translation") continue;
+        if (t.is_final) { sx.fin += t.text; sx.finLangs.push(t.language); sxFailures = 0; } else live += t.text;
+      }
+      sx.live = ended ? "" : live;
+      sxShow(ended);
+    };
+    ws.onclose = (e) => { if (current()) retrySoniox(`연결 종료 (${e.code}${e.reason ? " " + e.reason : ""})`); };
+    return true;
+  } catch (e) {
+    if (current()) retrySoniox(e.message || String(e));
+    return true;
+  }
+}
+function stopSoniox() {
+  ++sxGeneration;
+  clearTimeout(sxRetryTimer); sxRetryTimer = null; clearTimeout(sx.trTimer); sx.trTimer = null;
+  stopMeter();
+  if (sxWs) { const w = sxWs; sxWs = null; w.onclose = null; try { if (w.readyState === 1) w.send(""); } catch {} setTimeout(() => { try { w.close(); } catch {} }, 1500); }
+  if (sxStream) { sxStream.getTracks().forEach((t) => t.stop()); sxStream = null; }
+  if (sxCtx) { sxCtx.close().catch(() => {}); sxCtx = null; sxGain = null; }
+}
+
 /* ───── 마이크 고르기: 꽂은 핀마이크를 화면에서 바로 선택 ───── */
 async function listMics(askPermission) {
   const sel = $("mic");
@@ -1270,6 +1425,9 @@ $("mic").onchange = async () => {               // 듣는 중에 바꾸면 새 �
   if (running && engineRunning === "azure") {
     stopAzure(); await new Promise((r) => setTimeout(r, 300));
     if (await checkMic()) startAzure(); else stop();
+  } else if (running && engineRunning === "soniox") {
+    stopSoniox(); await new Promise((r) => setTimeout(r, 300));
+    if (await checkMic()) startSoniox(); else stop();
   } else if (running && engineRunning === "chrome") status("<b>크롬 무료 엔진은 Windows 기본 마이크만 씁니다.</b> 고른 마이크로 들으려면 엔진을 Azure로 바꿔주세요.", true);
 };
 navigator.mediaDevices?.addEventListener?.("devicechange", () => listMics(false));   // 마이크를 꽂거나 빼면 목록 자동 갱신
@@ -1316,13 +1474,14 @@ async function start() {
     if (engine !== "demo" && !(await checkMic())) ok = false;
     else if (engine === "demo") startDemo();
     else if (engine === "chrome") ok = startChrome();
+    else if (engine === "soniox") { sxFailures = 0; ok = await startSoniox(); }
     else ok = await startAzure();
   } catch (e) { status(`<b>시작 실패:</b> ${e.message}`, true); ok = false; }
   if (!ok) stop();
 }
 function stop() {
   running = false;
-  stopDemo(); stopChrome(); stopAzure();
+  stopDemo(); stopChrome(); stopAzure(); stopSoniox();
   engineRunning = null; syncButton();
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
   allBars().forEach((b) => b.classList.remove("idle"));
@@ -1337,7 +1496,7 @@ function syncButton() {
 $("start").onclick = () => (running ? stop() : start());
 
 /* ───── 화면 설정 ───── */
-$("engine").onchange = () => { $("azurePanel").hidden = $("engine").value !== "azure"; };
+$("engine").onchange = () => { $("azurePanel").hidden = $("engine").value !== "azure"; $("sonioxPanel").hidden = $("engine").value !== "soniox"; };
 /* 행사 언어 고르기 */
 function renderLangPanel() {
   $("langGrid").innerHTML = CATALOG.map((c) => `<label><input type="checkbox" value="${c.code}" ${selLangs.includes(c.code) ? "checked" : ""} ${c.code === "ko" ? "disabled" : ""}>
@@ -1368,6 +1527,7 @@ function setLangs(codes) {
   if (window.__styleReady) applyLangStyle();
   if (typeof shareCh !== "undefined" && shareCh) shareCh.send({ type: "broadcast", event: "hello", payload: { langs: langsPayload() } });
   if (running && engineRunning === "azure") { stopAzure(); setTimeout(startAzure, 300); }
+  if (running && engineRunning === "soniox") { stopSoniox(); setTimeout(startSoniox, 300); }
 }
 $("langBtn").onclick = () => { $("langPanel").hidden = !$("langPanel").hidden; };
 document.querySelectorAll("[data-preset]").forEach((b) => (b.onclick = () => setLangs(b.dataset.preset.split(","))));
@@ -1631,16 +1791,19 @@ if (matchMedia("(pointer: coarse)").matches && innerWidth < 900) {
    # 뒷부분은 서버로 전송되지 않고 GitHub에도 올라가지 않음 */
 (() => {
   const h = new URLSearchParams(location.hash.slice(1));
-  const k = (h.get("k") || "").trim();
-  if (!k) return;
-  try { localStorage.setItem("azKey", k); localStorage.setItem("azRegion", (h.get("r") || "koreacentral").trim()); if (h.get("t")) localStorage.setItem("trKey", h.get("t").trim()); if (h.get("e")) { localStorage.setItem("refineKey", h.get("e").trim()); localStorage.setItem("refineOn", "1"); $("refineKey").value = h.get("e").trim(); $("refineOn").checked = true; } } catch {}
+  const k = (h.get("k") || "").trim(), s = (h.get("s") || "").trim();   // s = Soniox 키
+  if (!k && !s) return;
+  try { if (s) localStorage.setItem("sxKey", s); if (k) { localStorage.setItem("azKey", k); localStorage.setItem("azRegion", (h.get("r") || "koreacentral").trim()); } if (h.get("t")) localStorage.setItem("trKey", h.get("t").trim()); if (h.get("e")) { localStorage.setItem("refineKey", h.get("e").trim()); localStorage.setItem("refineOn", "1"); $("refineKey").value = h.get("e").trim(); $("refineOn").checked = true; } } catch {}
   history.replaceState(null, "", location.pathname + location.search);
-  status("<b>Azure 키가 이 기기에 저장되었습니다.</b> 다음부터는 그냥 사이트 주소로 들어와도 됩니다.");
+  status("<b>키가 이 기기에 저장되었습니다.</b> 다음부터는 그냥 사이트 주소로 들어와도 됩니다.");
 })();
 try { $("azKey").value = localStorage.getItem("azKey") || ""; $("azRegion").value = localStorage.getItem("azRegion") || ""; $("trKey").value = localStorage.getItem("trKey") || ""; } catch {}
 $("trKey").onchange = () => { try { localStorage.setItem("trKey", $("trKey").value.trim()); } catch {} };
 applyLangStyle(); saveTranscriptSoon();
 if ($("azKey").value) { $("engine").value = "azure"; $("azurePanel").hidden = false; }   // 키가 있으면 바로 Azure로
+try { $("sxKey").value = localStorage.getItem("sxKey") || ""; } catch {}
+$("sxKey").onchange = () => { try { localStorage.setItem("sxKey", $("sxKey").value.trim()); } catch {} };
+if ($("sxKey").value) { $("engine").value = "soniox"; $("engine").onchange(); }   // Soniox 키가 있으면 Soniox 우선(Azure 무료 체험 종료)
 applySize();
 buildBar($("subbar"));
 </script>
