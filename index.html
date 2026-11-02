@@ -36,6 +36,7 @@
   .status.err b { color: #ff6b6b; }
   main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; padding: 4px 18px 24px; }
   @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  #refineKey { display: none; }                               /* EvoLink 키는 나만의 링크로만 넣음(화면에서는 숨김) */
   main.noHelp { grid-template-columns: minmax(0, 1fr); }   /* 사용법 닫으면 화면을 자막에 다 씀 */
   main.noHelp .help { display: none; }
   .help .helpClose { float: right; padding: 0 8px; }
@@ -177,7 +178,7 @@
   </div>
   <div class="ctrl">마이크
     <select id="mic" style="max-width:220px"><option value="">기본 마이크</option></select>
-    <select id="micBoost" title="마이크 소리 키우기(Azure, 원음 받기일 때). 듣는 중에 바꿔도 바로 적용. 말할 때 옆 막대가 5에서 8칸 오르면 적당"><option value="1">소리 그대로</option><option value="2">소리 2배</option><option value="4" selected>소리 4배</option><option value="8">소리 8배</option><option value="16">소리 16배</option></select>
+    <select id="micBoost" hidden title="마이크 소리 키우기. 핀마이크·내장 마이크는 소리가 충분해서 화면에서 숨기고 '그대로'로 고정"><option value="1" selected>소리 그대로</option><option value="2">소리 2배</option><option value="4">소리 4배</option><option value="8">소리 8배</option><option value="16">소리 16배</option></select>
     <span id="micMeter" class="note" hidden title="막대 = Azure로 가는 소리 크기. '못 알아들음'은 소리는 갔는데 Azure가 글자로 못 바꾼 횟수"></span>
   </div>
   <div class="ctrl">행사 언어
@@ -242,9 +243,9 @@
 <section class="setPanel" id="setPanel" hidden>
   <div class="setRow"><b>전체 글자 크기</b><input type="range" id="size" min="14" max="48" value="26"><span id="sizeVal" class="note"></span></div>
   <div class="setRow"><b>자막 배경 진하기</b><input type="range" id="bgAlpha" min="0" max="100" value="82"><span id="bgVal" class="note"></span></div>
-  <label class="chk"><input type="checkbox" id="autohide" checked>말 없으면 5초 뒤 자막 숨기기</label>
-  <label class="chk" title="크롬의 잡음 제거·에코 제거·자동 음량을 끄고 마이크 소리를 그대로 받습니다. 행사장 믹서·핀마이크에 권장. 스피커 소리가 마이크로 되울리면 끄세요."><input type="checkbox" id="rawMic" checked>마이크 원음 그대로 받기 (Azure)</label>  <div class="setRow"><label class="chk"><input type="checkbox" id="refineOn">AI 번역 다듬기</label>
-    <select id="refineModel" title="번역을 다시 확인할 AI 모델(EvoLink)">
+  <label class="chk"><input type="checkbox" id="autohide">말 없으면 5초 뒤 자막 숨기기</label>
+  <label class="chk" hidden title="크롬의 잡음 제거·에코 제거·자동 음량을 끄고 마이크 소리를 그대로 받습니다. 행사장 믹서·핀마이크에 권장. 스피커 소리가 마이크로 되울리면 끄세요."><input type="checkbox" id="rawMic" checked>마이크 원음 그대로 받기 (Azure)</label>  <div class="setRow"><label class="chk"><input type="checkbox" id="refineOn">AI 번역 다듬기</label>
+    <select id="refineModel" hidden title="번역·다듬기에 쓰는 AI 모델(EvoLink). 화면에서는 숨기고 가장 빠른 모델로 고정">
       <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite (빠름, 추천)</option>
       <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite</option>
       <option value="gpt-6-luna">GPT-6 Luna (가장 저렴, 조금 느림)</option>
@@ -640,12 +641,12 @@ async function refine(id) {
 }
 function showRefineInfo() {
   const n = refineStat.checked;
-  $("refineInfo").textContent = n || refineStat.failed
-    ? `확인 ${n}문장 · 교체 ${refineStat.replaced}곳 · 평균 ${n ? (refineStat.ms / n / 1000).toFixed(1) : "-"}초` + (refineStat.failed ? ` · 실패 ${refineStat.failed}` : "")
-    : "문장이 끝나면 AI가 번역을 다시 확인해, 뜻이 틀린 언어만 1초쯤 뒤 고쳐 끼웁니다(노랗게 깜빡임).";
+  $("refineInfo").title = n || refineStat.failed     // 통계는 마우스를 올렸을 때만(화면 문구는 설명 하나로 고정)
+    ? `확인 ${n}문장 · 교체 ${refineStat.replaced}곳 · 평균 ${n ? (refineStat.ms / n / 1000).toFixed(1) : "-"}초` + (refineStat.failed ? ` · 실패 ${refineStat.failed}` : "") : "";
 }
 $("micBoost").addEventListener("change", () => { for (const g of [azGain, sxGain]) if (g) g.gain.value = Number($("micBoost").value) || 1; });   // 듣는 중에도 바로 적용
-for (const k of ["refineOn", "refineModel", "refineKey", "rawMic", "micBoost"]) {
+try { for (const k of ["refineModel", "rawMic", "micBoost"]) localStorage.removeItem(k); } catch {}   // 화면에서 뺀 설정은 예전 저장값 무시(기본값 고정)
+for (const k of ["refineOn", "refineKey", "autohide"]) {
   const el = $(k), v = (() => { try { return localStorage.getItem(k); } catch { return null; } })();
   if (v !== null) { if (el.type === "checkbox") el.checked = v === "1"; else el.value = v; }
   el.addEventListener("change", () => { try { localStorage.setItem(k, el.type === "checkbox" ? (el.checked ? "1" : "0") : el.value.trim()); } catch {} });
