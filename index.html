@@ -793,7 +793,23 @@ async function onQuestion(p) {
   if (q.src) q.text[q.src] = text;
   transcript.push({ t: q.t, q: true, name: q.name, said: q.src || "ko", text: { ...q.text, ...(q.src ? {} : { ko: text }) } }); saveTranscriptSoon();
   renderQuestions();
-  toast("💬 새 질문: " + (q.text.ko || text).slice(0, 40));
+  notifyQuestion(q, q.text.ko || text);
+}
+/* 새 질문 알림: 진행자 PC에만 Windows 알림(카톡처럼). 알림을 못 쓰면 전처럼 화면 위 짧은 안내 */
+const baseTitle = document.title;
+let qUnread = 0;
+function clearQAlert() { qUnread = 0; $("qBtn").classList.remove("on"); document.title = baseTitle; }
+function notifyQuestion(q, text) {
+  qUnread++; $("qBtn").classList.add("on"); document.title = `(${qUnread}) ${baseTitle}`;
+  let sent = false;
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      const n = new Notification("💬 새 청중 질문", { body: text.slice(0, 120), tag: q.qid });
+      n.onclick = () => { window.focus(); $("qPanel").hidden = false; clearQAlert(); n.close(); };
+      sent = true;
+    } catch {}
+  }
+  if (!sent) toast("💬 새 질문: " + text.slice(0, 40));
 }
 function renderQuestions() {
   $("qCount").textContent = questions.length;
@@ -829,7 +845,7 @@ addEventListener("keydown", (e) => {
     if (shownQ) hideQuestion(); else if (questions.length) showQuestion(questions[questions.length - 1].qid); else toast("아직 질문이 없습니다");
   }
 });
-$("qBtn").onclick = () => { $("qPanel").hidden = !$("qPanel").hidden; };
+$("qBtn").onclick = () => { $("qPanel").hidden = !$("qPanel").hidden; clearQAlert(); };
 $("trBtn").onclick = () => { $("trPanel").hidden = !$("trPanel").hidden; };
 $("trTxt").onclick = () => (transcript.length ? exportTxt() : status("아직 저장할 자막이 없습니다."));
 $("trCsv").onclick = () => (transcript.length ? exportCsv() : status("아직 저장할 자막이 없습니다."));
@@ -1574,6 +1590,7 @@ $("langBtn").onclick = () => { $("langPanel").hidden = !$("langPanel").hidden; }
 document.querySelectorAll("[data-preset]").forEach((b) => (b.onclick = () => setLangs(b.dataset.preset.split(","))));
 setLangs(selLangs);
 $("share").onclick = async () => {
+  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});   // 새 질문 알림 허용 묻기
   if (!$("sharePanel").hidden) { $("sharePanel").hidden = true; return; }
   $("sharePanel").hidden = false;
   if (!shareOn) {
