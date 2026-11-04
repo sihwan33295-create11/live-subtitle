@@ -75,6 +75,13 @@
   /* 자막 띠 */
   .subbar { background: rgba(0, 0, 0, var(--subA, .82)); padding: .45em 1.2em .55em; display: flex; flex-direction: column; gap: .2em;
     font-size: calc(var(--fs) * var(--mul)); transition: opacity .6s; }
+  /* 화면 공유: 자료 75%, 자막 25%. 언어가 늘어도 자료 높이는 유지 */
+  .stage.capturemode > video { flex: 0 0 75%; height: 75%; min-height: 0; min-width: 0; }
+  .stage.capturemode > .subbar { flex: 0 0 25%; height: 25%; min-height: 0; box-sizing: border-box; overflow: hidden;
+    font-size: var(--captureFs, 18px); padding: .2em .8em; gap: .1em; }
+  .stage.capturemode > .subbar .row { --lines: 1; flex: 1 1 0; min-height: 0; align-items: center; }
+  .stage.capturemode > .subbar .txt { max-height: 100%; }
+  .stage.capturemode.qa > video { width: 75%; }
   .subbar.idle { opacity: 0; }
   .toast { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 5; background: rgba(0,0,0,.8); color: #fff;
     border: 1px solid #ffd24d; border-radius: 8px; padding: 6px 16px; font-size: 18px; font-weight: 700; pointer-events: none; }
@@ -946,6 +953,7 @@ function buildBar(bar) {
   }
   renderBar(bar);
   fitTv(bar);
+  if (bar === $("subbar")) fitCapture();
 }
 /* 자막 전용 화면: 창 크기에 맞춰 꽉 차게. 넓히면 한 줄에 더 많이, 높이면 줄 수가 더 많이, 줄이면 글자가 같이 작아짐 */
 function fitTv(bar) {
@@ -1894,10 +1902,22 @@ addEventListener("resize", rerender);
 document.addEventListener("fullscreenchange", rerender);
 
 /* 화면 공유: PPT 화면을 받아와 위에 보여주고 아래에 자막 */
+function fitCapture() {
+  const stage = $("stage"), bar = $("subbar");
+  if (!stage.classList.contains("capturemode")) return;
+  const n = Math.max(1, bar.children.length), h = stage.clientHeight * .25;
+  // 사용자 글자 설정을 상한으로 두고, 모든 언어 한 줄이 25% 안에 들어가도록 줄임.
+  const preferred = Number($("size").value) * (document.fullscreenElement === stage ? 1.3 : 1);
+  stage.style.setProperty("--captureFs", Math.max(1, Math.min(preferred, (h - Math.max(0, n - 1)) / (1.8 * n + .4))) + "px");
+}
+new ResizeObserver(fitCapture).observe($("stage"));
+document.addEventListener("fullscreenchange", fitCapture);
+$("size").addEventListener("input", fitCapture);
 let capStream = null;
 function stopCapture() {
   if (capStream) capStream.getTracks().forEach((t) => t.stop());
   capStream = null;
+  $("stage").classList.remove("capturemode");
   $("cap").srcObject = null; $("cap").hidden = true; $("slide").hidden = false;
   $("capture").classList.remove("on"); $("capture").textContent = "🖥 화면 공유 (자막은 아래에)";
 }
@@ -1911,6 +1931,7 @@ $("capture").onclick = async () => {
   if (deck) closeDeck();
   const v = $("cap");
   v.srcObject = capStream; v.hidden = false; $("slide").hidden = true;
+  $("stage").classList.add("capturemode"); fitCapture();
   $("capture").classList.add("on"); $("capture").textContent = "■ 화면 공유 끄기";
   capStream.getVideoTracks()[0].addEventListener("ended", stopCapture);
   status("<b>화면 공유 중</b> · 이 창을 프로젝터 화면으로 옮기고 <b>⛶ 전체화면</b>을 누르세요.");
