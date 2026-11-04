@@ -96,6 +96,26 @@
   .shareInfo { display: flex; flex-direction: column; gap: 6px; font-size: 14px; min-width: 240px; flex: 1; }
   .shareInfo a { color: #7fb2ff; word-break: break-all; }
   .shareRow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  /* 질의응답 모드: 왼쪽 3/4는 자료+자막, 오른쪽 1/4는 질문 채팅칸 */
+  .stage.qa > .slide, .stage.qa > .deck, .stage.qa > video, .stage.qa > .subbar { margin-right: 25%; }
+  .stage.qa > video { width: 75%; }
+  .stage.qa .row { --lines: 1; }                              /* 자막은 언어별 한 줄로 줄여 자료를 3/4 높이로 */
+  .stage.qa:fullscreen { --mul: calc(1.3 * var(--rowsK, 1)); }
+  .stage.qa .stageQr { display: none; }
+  .stage.qa .qBanner { right: 28%; }
+  .stage.qa .toast { left: 37.5%; }
+  .qaChat { position: absolute; right: 0; top: 0; bottom: 0; width: 25%; z-index: 3; container-type: inline-size; display: flex; flex-direction: column; background: #12161d; color: #fff; border-left: 1px solid #333b48; }
+  .qaHead { padding: 3cqw 5cqw; font-size: 6cqw; font-weight: 700; color: #ffd24d; border-bottom: 1px solid #333b48; }
+  .qaList { flex: 1; min-height: 0; overflow-y: auto; padding: 4cqw; display: flex; flex-direction: column; gap: 3cqw; }
+  .qaEmpty { color: #9aa3b2; font-size: 5cqw; line-height: 1.5; text-align: center; margin: auto 0; }
+  .qaItem { position: relative; flex: none; background: #1f2530; border-radius: 3cqw; padding: 3cqw 9cqw 3cqw 4cqw; font-size: 5.6cqw; line-height: 1.4; word-break: keep-all; overflow-wrap: anywhere; }
+  .qaItem .who { color: #9aa3b2; font-size: 4cqw; margin-bottom: 1cqw; }
+  .qaItem .orig { color: #aeb6c4; font-size: 4.4cqw; margin-top: 1.5cqw; }
+  .qaItem .del { position: absolute; right: 1.5cqw; top: 1.5cqw; border: 0; background: transparent; color: #9aa3b2; font-size: 5cqw; line-height: 1; padding: 1.5cqw 2cqw; cursor: pointer; }
+  .qaItem .del:hover { color: #fff; background: #e5484d; border-radius: 2cqw; }
+  .qaFoot { display: flex; gap: 4cqw; align-items: center; padding: 3cqw 4cqw; border-top: 1px solid #333b48; font-size: 4.2cqw; line-height: 1.4; color: #c9cfda; }
+  .qaQr { flex: none; width: 30cqw; background: #fff; padding: 1cqw; border-radius: 1.5cqw; line-height: 0; }
+  .qaQr canvas, .qaQr img { width: 100% !important; height: auto !important; display: block; }
   .stageQr { position: absolute; right: 12px; top: 12px; z-index: 4; background: #fff; padding: 6px 6px 2px; border-radius: 8px; text-align: center;
     color: #111; font: 700 11px "Malgun Gothic", system-ui, sans-serif; line-height: 1.2; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
   .stageQr span { display: block; padding: 2px 0 3px; }
@@ -172,7 +192,7 @@
   <div class="ctrl">말하는 언어
     <select id="srcLang" title="발표 때는 발표자 언어를 고르면 더 정확합니다. 질의응답처럼 언어가 섞이면 '자동'. Ctrl+F1 = 자동 ↔ 직전 언어 전환(전체화면에서도)">
     </select>
-    <button id="qaBtn" title="발표 ↔ 질의응답 전환 (Ctrl+F1). 질의응답은 모든 행사 언어를 알아서 알아듣습니다">🙋 질의응답</button>
+    <button id="qaBtn" title="발표 ↔ 질의응답 전환 (Ctrl+F1). 질의응답 모드는 자료 옆에 질문 채팅칸이 열리고, 어느 언어로 말해도 알아듣습니다">🙋 질의응답</button>
   </div>
   <div class="ctrl">마이크
     <select id="mic" style="max-width:220px"><option value="">기본 마이크</option></select>
@@ -296,6 +316,11 @@
     <div class="toast" id="toast" hidden></div>
     <div class="qBanner" id="qBanner" hidden></div>
     <div class="stageQr" id="stageQr" hidden><div id="stageQrImg"></div><span>휴대폰 자막</span></div>
+    <aside class="qaChat" id="qaChat" hidden>
+      <div class="qaHead">💬 질의응답</div>
+      <div class="qaList" id="qaList"></div>
+      <div class="qaFoot" id="qaFoot" hidden><div class="qaQr" id="qaQr"></div><span>QR을 찍어 질문을 보내 주세요<br>Scan to ask a question</span></div>
+    </aside>
   </div>
 
   <aside class="help">
@@ -310,7 +335,7 @@
       <li>PPT 파일(.pptx)을 이 화면에 <b>끌어다 놓거나</b> <b>📄 발표자료 넣기</b>를 누릅니다.</li>
       <li><b>F5</b>를 누르면 전체화면. 위에는 슬라이드, 아래에는 자막이 나옵니다. (발표자료가 들어가 있을 때 새로고침은 <b>Ctrl+F5</b>)</li>
       <li><b>방향키·스페이스·클릭·프레젠터(리모컨)</b>로 넘깁니다. 나갈 때는 <b>Esc</b>.</li>
-      <li>질의응답이 시작되면 <b>🙋 질의응답</b>(또는 <b>Ctrl+F1</b>): 어느 언어로 말해도 알아듣습니다. 다시 누르면 발표 언어로 돌아갑니다.</li>
+      <li>질의응답이 시작되면 <b>🙋 질의응답</b>(또는 <b>Ctrl+F1</b>): 자료 오른쪽에 질문 채팅칸과 QR이 열리고, 어느 언어로 말해도 알아듣습니다. 질문은 ✕로 지웁니다. 다시 누르면 발표 화면으로 돌아갑니다.</li>
     </ol>
     <p>PPT 프로그램을 켤 필요가 없습니다. 애니메이션·동영상은 빠지고, 글꼴이 조금 다를 수 있습니다. 모양이 꼭 같아야 하면 PDF로 저장해서 넣으세요.</p>
 
@@ -734,6 +759,7 @@ async function startShare(room) {
     ch.send({ type: "broadcast", event: "hello", payload: { langs: langsPayload() } });
     if (shownQ) { const q = questions.find((x) => x.qid === shownQ); if (q) ch.send({ type: "broadcast", event: "qshow", payload: { qid: q.qid, name: q.name, text: q.text, orig: q.orig } }); }
     ch.send({ type: "broadcast", event: "seg", payload: { items: [...relayHist.values()] } });
+    sendQList();
   });
   ch.on("broadcast", { event: "q" }, ({ payload }) => onQuestion(payload || {}));
   ch.on("presence", { event: "sync" }, () => {
@@ -750,6 +776,7 @@ async function startShare(room) {
   $("shareLink").textContent = link; $("shareLink").href = link;
   await drawQr($("qrBox"), link, 168);
   await drawQr($("stageQrImg"), link, 110);
+  await drawQr($("qaQr"), link, 220); $("qaFoot").hidden = false;
   $("share").textContent = "📱 청중 자막 켜짐 (QR)"; $("share").classList.add("on");
 }
 async function drawQr(el, text, size) {
@@ -780,16 +807,16 @@ function codeFromDetected(d) {
 }
 async function onQuestion(p) {
   const text = String(p.text || "").slice(0, 300).trim(); if (!text) return;
-  const q = { qid: p.qid || Math.random().toString(36).slice(2), name: String(p.name || "").slice(0, 20), orig: text, src: "", text: {}, t: Date.now() };
+  const q = { qid: String(p.qid || "").replace(/[^\w-]/g, "").slice(0, 40) || Math.random().toString(36).slice(2), name: String(p.name || "").slice(0, 20), orig: text, src: "", text: {}, t: Date.now() };
   questions.push(q);
   try {
     const tr = await translateText(text, selLangs);
     if (tr) { q.src = codeFromDetected(tr.detected); q.text = tr.text; }
   } catch (e) { status("<b>질문 번역 실패:</b> 번역 키를 확인해 주세요. (원문은 그대로 보입니다)", true); }
-  if (!q.src) q.src = p.lang || "";
+  if (!q.src && /^[\w-]{1,12}$/.test(p.lang || "")) q.src = p.lang;   // 청중이 보낸 값이라 형식 확인
   if (q.src) q.text[q.src] = text;
-  transcript.push({ t: q.t, q: true, name: q.name, said: q.src || "ko", text: { ...q.text, ...(q.src ? {} : { ko: text }) } }); saveTranscriptSoon();
-  renderQuestions();
+  transcript.push({ t: q.t, q: true, qid: q.qid, name: q.name, said: q.src || "ko", text: { ...q.text, ...(q.src ? {} : { ko: text }) } }); saveTranscriptSoon();
+  renderQuestions(); sendQList();
   notifyQuestion(q, q.text.ko || text);
 }
 /* 새 질문 알림: 진행자 PC에만 Windows 알림(카톡처럼). 알림을 못 쓰면 전처럼 화면 위 짧은 안내 */
@@ -797,6 +824,7 @@ const baseTitle = document.title;
 let qUnread = 0;
 function clearQAlert() { qUnread = 0; $("qBtn").classList.remove("on"); document.title = baseTitle; }
 function notifyQuestion(q, text) {
+  if (qaMode) return;                               // 질의응답 모드에서는 채팅칸에 바로 보이므로 알림 생략
   qUnread++; $("qBtn").classList.add("on"); document.title = `(${qUnread}) ${baseTitle}`;
   let sent = false;
   if ("Notification" in window && Notification.permission === "granted") {
@@ -810,15 +838,39 @@ function notifyQuestion(q, text) {
 }
 function renderQuestions() {
   $("qCount").textContent = questions.length;
-  if (!questions.length) return;
+  renderQaChat();
+  if (!questions.length) { $("qList").innerHTML = '<div class="note">아직 질문이 없습니다.</div>'; return; }
   $("qList").innerHTML = questions.slice().reverse().map((q) => `<div class="qCard ${shownQ === q.qid ? "shown" : ""}">
     <div class="meta">${hhmmss(q.t)} · ${q.name ? q.name.replace(/</g, "&lt;") + " · " : ""}${q.src ? langName(q.src) + "로 질문" : "언어 미확인"}</div>
     <div><b>${(q.text.ko || q.orig).replace(/</g, "&lt;")}</b></div>
     ${q.src && q.src !== "ko" ? `<div class="note">원문: ${q.orig.replace(/</g, "&lt;")}</div>` : ""}
-    <div class="acts">${shownQ === q.qid ? `<button data-hide="${q.qid}">화면에서 내리기</button>` : `<button data-show="${q.qid}">화면에 띄우기</button>`}</div>
+    <div class="acts">${shownQ === q.qid ? `<button data-hide="${q.qid}">화면에서 내리기</button>` : `<button data-show="${q.qid}">화면에 띄우기</button>`}<button data-del="${q.qid}">✕ 지우기</button></div>
   </div>`).join("");
   $("qList").querySelectorAll("[data-show]").forEach((b) => (b.onclick = () => showQuestion(b.dataset.show)));
   $("qList").querySelectorAll("[data-hide]").forEach((b) => (b.onclick = hideQuestion));
+  $("qList").querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => deleteQuestion(b.dataset.del)));
+}
+/* 질의응답 채팅칸: 들어온 질문이 바로 올라오고, 새 질문은 맨 아래. ✕로 지움 */
+const escHtml = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function renderQaChat() {
+  const el = $("qaList");
+  el.innerHTML = questions.length ? questions.map((q) => `<div class="qaItem" dir="auto">
+    ${q.name ? `<div class="who">${escHtml(q.name)}</div>` : ""}<div>${escHtml(q.text.ko || q.orig)}</div>
+    ${q.src && q.src !== "ko" ? `<div class="orig">${escHtml(q.orig)}</div>` : ""}
+    <button class="del" data-del="${q.qid}" title="이 질문 지우기">✕</button></div>`).join("")
+    : '<div class="qaEmpty">아직 질문이 없습니다.<br>No questions yet.</div>';
+  el.querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => deleteQuestion(b.dataset.del)));
+  el.scrollTop = el.scrollHeight;
+}
+function deleteQuestion(qid) {                      // 화면·청중 휴대폰·자막 기록에서 모두 지움
+  const i = questions.findIndex((x) => x.qid === qid); if (i < 0) return;
+  questions.splice(i, 1);
+  if (shownQ === qid) hideQuestion();
+  transcript = transcript.filter((r) => r.qid !== qid); saveTranscriptSoon();
+  renderQuestions(); sendQList();
+}
+function sendQList() {                              // 청중 휴대폰의 질문 목록(최근 30개)
+  if (shareCh) shareCh.send({ type: "broadcast", event: "qlist", payload: { items: questions.slice(-30).map((q) => ({ qid: q.qid, name: q.name, text: q.text, orig: q.orig })) } });
 }
 function showQuestion(qid) {
   const q = questions.find((x) => x.qid === qid); if (!q) return;
@@ -855,7 +907,7 @@ function stopShare() {
   if (shareCh) { try { shareCh.unsubscribe(); } catch {} }
   shareCh = null; shareOn = false;
   try { localStorage.setItem("shareOn", "0"); } catch {}
-  $("sharePanel").hidden = true; $("stageQr").hidden = true; $("qrOnStage").checked = false;
+  $("sharePanel").hidden = true; $("stageQr").hidden = true; $("qrOnStage").checked = false; $("qaFoot").hidden = true;
   $("share").textContent = "📱 청중 휴대폰 자막 (QR)"; $("share").classList.remove("on");
   status("청중 휴대폰 자막을 껐습니다.");
 }
@@ -1235,22 +1287,31 @@ function toast(msg) {                             // 전체화면에서도 보�
   $("toast").textContent = msg; $("toast").hidden = false;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => ($("toast").hidden = true), 2200);
 }
-function toggleAutoLang() {                       // Ctrl+F1: 자동 ↔ 직전 고정 언어
-  const sel = $("srcLang"), cur = sel.value;
-  if (cur === "auto") {
+function setQaMode(on) {                          // 질의응답 모드: 자료 옆에 채팅칸을 열고 어느 언어든 알아듣게. 끄면 발표 언어로 복귀
+  qaMode = on;
+  $("stage").classList.toggle("qa", on); $("qaChat").hidden = !on;
+  const sel = $("srcLang");
+  if (on) {
+    if (sel.value !== "auto") {
+      lastFixedLang = sel.value;
+      try { localStorage.setItem("lastFixedLang", sel.value); } catch {}
+      sel.value = "auto"; sel.onchange();
+    }
+    clearQAlert(); renderQaChat();
+    if (!shareOn) {                                 // QR이 있어야 질문을 받으므로 청중 공유도 같이 켬
+      let room = ""; try { room = localStorage.getItem("shareRoom") || ""; } catch {}
+      startShare(room || newRoomCode()).catch((e) => status(`<b>청중 공유 연결 실패:</b> ${e.message}`, true));
+    }
+  } else if (sel.value === "auto") {
     const back = [...sel.options].some((o) => o.value === lastFixedLang) ? lastFixedLang : (sel.options[1] && sel.options[1].value);
-    if (!back) return toast("말하는 언어: 자동 (고정할 언어가 없습니다)");
-    sel.value = back;
-  } else {
-    lastFixedLang = cur;
-    try { localStorage.setItem("lastFixedLang", cur); } catch {}
-    sel.value = "auto";
+    if (back) { sel.value = back; sel.onchange(); }
   }
-  toast("말하는 언어: " + sel.selectedOptions[0].text.replace(/ \(.*\)$/, ""));
-  sel.onchange();
+  syncQaBtn();
+  toast(on ? "질의응답 모드" : "발표 모드");
+  dispatchEvent(new Event("resize"));               // 슬라이드 크기 다시 맞추기
 }
 addEventListener("keydown", (e) => {
-  if (e.ctrlKey && e.key === "F1") { e.preventDefault(); toggleAutoLang(); }
+  if (e.ctrlKey && e.key === "F1") { e.preventDefault(); setQaMode(!qaMode); }
 });
 $("srcLang").onchange = async () => {             // 듣는 중에 바꾸면 바로 다시 연결
   try { localStorage.setItem("srcLang", $("srcLang").value); } catch {}
@@ -1445,12 +1506,12 @@ async function restartSmart() {
   stopAzure(); stopSoniox(); await new Promise((res) => setTimeout(res, 300));
   if (running && $("engine").value === "soniox") { azFailures = 0; sxFailures = 0; if (!(await startSmart())) stop(); }
 }
+let qaMode = false;
 function syncQaBtn() {
-  const qa = $("srcLang").value === "auto";
-  $("qaBtn").classList.toggle("primary", qa);
-  $("qaBtn").textContent = qa ? "🙋 질의응답 중 (발표로)" : "🙋 질의응답";
+  $("qaBtn").classList.toggle("primary", qaMode);
+  $("qaBtn").textContent = qaMode ? "🙋 질의응답 끝내기" : "🙋 질의응답";
 }
-$("qaBtn").onclick = () => toggleAutoLang();
+$("qaBtn").onclick = () => setQaMode(!qaMode);
 function stopSoniox() {
   ++sxGeneration;
   clearTimeout(sxRetryTimer); sxRetryTimer = null; clearTimeout(sx.trTimer); sx.trTimer = null;
