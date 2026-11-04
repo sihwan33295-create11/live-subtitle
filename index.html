@@ -146,6 +146,12 @@
   .prev { color: rgba(255, 255, 255, .5); font-weight: 500; }
   .cur.interim { color: rgba(255, 255, 255, .72); }          /* 기울임은 중국어·태국어 등에서 읽기 어려워 흐리게만 */
   .cur.fixed { animation: fixed 1s ease-out; }
+  /* 자막 바탕 흰색(발표 화면만, 자막 전용 화면은 검은색 유지) */
+  .subbar.light { background: #fff; border-top: 1px solid #cfd4dc; }
+  .subbar.light .row + .row { border-top-color: rgba(0, 0, 0, .15); }
+  .subbar.light .inner { color: #111; text-shadow: none; }
+  .subbar.light .prev { color: rgba(0, 0, 0, .55); }
+  .subbar.light .cur.interim { color: rgba(0, 0, 0, .62); }
   @keyframes fixed { 0% { background: rgba(255, 210, 77, .55); } 100% { background: transparent; } }
 
   /* 항상 위 자막 창(PiP) */
@@ -260,7 +266,8 @@
 
 <section class="setPanel" id="setPanel" hidden>
   <div class="setRow"><b>전체 글자 크기</b><input type="range" id="size" min="14" max="48" value="26"><span id="sizeVal" class="note"></span></div>
-  <div class="setRow"><b>자막 배경 진하기</b><input type="range" id="bgAlpha" min="0" max="100" value="82"><span id="bgVal" class="note"></span></div>
+  <div class="setRow"><b>자막 바탕</b><select id="subTheme"><option value="light">흰색</option><option value="dark">검은색</option></select></div>
+  <div class="setRow" id="bgAlphaRow"><b>자막 배경 진하기</b><input type="range" id="bgAlpha" min="0" max="100" value="82"><span id="bgVal" class="note"></span></div>
   <label class="chk"><input type="checkbox" id="autohide">말 없으면 5초 뒤 자막 숨기기</label>
   <div class="setRow"><button id="glossBtn">📝 행사 용어 넣기</button><span class="note">발표자 이름·기업명처럼 자주 틀리는 단어를 미리 알려주면 더 정확해집니다(선택).</span></div>
   <label class="chk" hidden title="크롬의 잡음 제거·에코 제거·자동 음량을 끄고 마이크 소리를 그대로 받습니다. 행사장 믹서·핀마이크에 권장. 스피커 소리가 마이크로 되울리면 끄세요."><input type="checkbox" id="rawMic" checked>마이크 원음 그대로 받기 (Azure)</label>  <div class="setRow"><label class="chk"><input type="checkbox" id="refineOn">AI 번역 다듬기</label>
@@ -670,7 +677,7 @@ function showRefineInfo() {
 }
 $("micBoost").addEventListener("change", () => { for (const g of [azGain, sxGain]) if (g) g.gain.value = Number($("micBoost").value) || 1; });   // 듣는 중에도 바로 적용
 try { for (const k of ["refineModel", "rawMic", "micBoost"]) localStorage.removeItem(k); } catch {}   // 화면에서 뺀 설정은 예전 저장값 무시(기본값 고정)
-for (const k of ["refineOn", "refineKey", "autohide"]) {
+for (const k of ["refineOn", "refineKey", "autohide", "subTheme"]) {
   const el = $(k), v = (() => { try { return localStorage.getItem(k); } catch { return null; } })();
   if (v !== null) { if (el.type === "checkbox") el.checked = v === "1"; else el.value = v; }
   el.addEventListener("change", () => { try { localStorage.setItem(k, el.type === "checkbox" ? (el.checked ? "1" : "0") : el.value.trim()); } catch {} });
@@ -1687,7 +1694,7 @@ function applyLangStyle() {
   const css = Object.entries(langStyle).map(([c, v]) => {
     const base = 1, sc = (v.scale || 100) / 100, sel = `.row[data-lang="${c}"]`;
     return `${sel} .txt{font-size:${(base * sc).toFixed(3)}em}` +
-      (v.color ? `${sel} .inner,${sel} .txt{color:${v.color}}${sel} .prev{color:${v.color};opacity:.55}${sel} .cur.interim{color:${v.color};opacity:.75}` : "");
+      (v.color && v.color !== "#ffffff" ? `${sel} .inner,${sel} .txt{color:${v.color}}${sel} .prev{color:${v.color};opacity:.55}${sel} .cur.interim{color:${v.color};opacity:.75}` : "");
   }).join("\n");
   const alpha = (+$("bgAlpha").value / 100).toFixed(2);
   for (const d of styleDocs()) {
@@ -1937,6 +1944,13 @@ if ($("sxKey").value) $("engine").value = "soniox";   // Soniox 키가 있으면
 $("engine").onchange();
 applySize();
 buildBar($("subbar"));
+function applySubTheme() {
+  const light = $("subTheme").value === "light";
+  $("subbar").classList.toggle("light", light);
+  $("bgAlphaRow").hidden = light;                   // 흰 바탕은 항상 불투명이라 진하기 조절이 필요 없음
+}
+$("subTheme").addEventListener("change", applySubTheme);
+applySubTheme();
 /* 오른쪽 사용법: 처음 들어온 기기에서만 펼쳐 보여주고, 그다음부터는 닫아 둠(❓ 사용법으로 열기) */
 function showHelp(open) {
   document.querySelector("main").classList.toggle("noHelp", !open);
